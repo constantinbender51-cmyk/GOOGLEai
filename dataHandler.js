@@ -8,10 +8,6 @@ import { KrakenFuturesApi } from './krakenApi.js';
  *              for the trading bot using the Kraken API client.
  */
 export class DataHandler {
-    /**
-     * @param {string} apiKey - Your Kraken Futures API key.
-     * @param {string} apiSecret - Your Kraken Futures API secret.
-     */
     constructor(apiKey, apiSecret) {
         if (!apiKey || !apiSecret) {
             throw new Error("API key and secret are required to initialize the DataHandler.");
@@ -28,30 +24,28 @@ export class DataHandler {
     async fetchAllData(pair = 'XBTUSD', interval = 60) {
         console.log("--- Starting data fetch cycle ---");
         try {
-            // Use Promise.all to fetch all data concurrently
             const [
                 ohlcData,
                 accountBalance,
                 openPositions,
                 openOrders,
-                recentFills // Add recentFills to the concurrent fetch
+                recentFills
             ] = await Promise.all([
                 this.fetchOhlcData({ pair, interval }),
-                this.fetchAccountBalance(),
+                this.fetchAccountBalance(), // This will now return a number
                 this.fetchOpenPositions(),
                 this.fetchOpenOrders(),
-                this.fetchRecentFills() // Call the new method
+                this.fetchRecentFills()
             ]);
 
             console.log("--- Data fetch cycle completed successfully ---");
 
-            // Return a single, structured object with the new data
             return {
                 ohlc: ohlcData,
-                balance: accountBalance,
+                balance: accountBalance, // This is now the tradable USD amount
                 positions: openPositions,
                 orders: openOrders,
-                fills: recentFills // Add fills to the final object
+                fills: recentFills
             };
 
         } catch (error) {
@@ -61,10 +55,35 @@ export class DataHandler {
     }
 
     /**
-     * Fetches OHLC data from Kraken's public spot API.
-     * @param {object} params - Parameters for the OHLC request.
-     * @returns {Promise<Array<object>|null>} Formatted OHLC data.
+     * Fetches account balance information from Kraken Futures and returns the available tradable USD margin.
+     * @returns {Promise<number>} The available USD margin as a number. Returns 0 if not found.
      */
+    async fetchAccountBalance() {
+        console.log("Fetching account balance...");
+        try {
+            const data = await this.api.getAccounts();
+            
+            // Safely navigate the object structure to find the available margin.
+            // This is called optional chaining (`?.`) and prevents errors if a key doesn't exist.
+            const availableMargin = data?.accounts?.flex?.currencies?.USD?.availableMargin;
+
+            if (typeof availableMargin === 'number') {
+                console.log(`Successfully fetched account balance. Tradable USD: $${availableMargin.toFixed(2)}`);
+                return availableMargin;
+            } else {
+                // This case handles if the structure is unexpected or the value is missing.
+                console.warn("Could not find 'availableMargin' in the expected path in the account data. Defaulting to 0.");
+                console.log("Received account data structure:", JSON.stringify(data, null, 2));
+                return 0;
+            }
+        } catch (error) {
+            console.error("Failed to fetch or parse account balance:", error);
+            return 0; // Return a safe value in case of an API error
+        }
+    }
+
+    // ... (other methods: fetchOhlcData, fetchOpenPositions, etc. remain the same) ...
+    
     async fetchOhlcData({ pair, interval }) {
         console.log(`Fetching OHLC data for ${pair} with ${interval}m interval...`);
         const data = await this.api.fetchKrakenData({ pair, interval });
@@ -72,21 +91,6 @@ export class DataHandler {
         return data;
     }
 
-    /**
-     * Fetches account balance information from Kraken Futures.
-     * @returns {Promise<object>} Account balance data.
-     */
-    async fetchAccountBalance() {
-        console.log("Fetching account balance...");
-        const data = await this.api.getAccounts();
-        console.log("Successfully fetched account balance.");
-        return data;
-    }
-
-    /**
-     * Fetches all open positions from Kraken Futures.
-     * @returns {Promise<object>} Open positions data.
-     */
     async fetchOpenPositions() {
         console.log("Fetching open positions...");
         const data = await this.api.getOpenPositions();
@@ -94,10 +98,6 @@ export class DataHandler {
         return data;
     }
 
-    /**
-     * Fetches all open (unfilled) orders from Kraken Futures.
-     * @returns {Promise<object>} Open orders data.
-     */
     async fetchOpenOrders() {
         console.log("Fetching open orders...");
         const data = await this.api.getOpenOrders();
@@ -105,13 +105,8 @@ export class DataHandler {
         return data;
     }
 
-    /**
-     * Fetches the most recent executed trades (fills) from Kraken Futures.
-     * @returns {Promise<object>} Fills data.
-     */
     async fetchRecentFills() {
         console.log("Fetching recent fills (trade history)...");
-        // We can add parameters here later if we need to paginate, e.g., { lastFillTime: '...' }
         const data = await this.api.getFills();
         console.log(`Successfully fetched ${data.fills?.length || 0} recent fills.`);
         return data;
