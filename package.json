@@ -1,0 +1,21 @@
+{
+  "name": "gemini-prompt-example",
+  "version": "1.0.0",
+  "description": "A simple Node.js script to run a prompt with the Google Gemini API.",
+  "main": "runPrompt.js",
+  "type": "module",
+  "scripts": {
+    "start": "node runPrompt.js"
+  },
+  "keywords": [
+    "gemini",
+    "google",
+    "ai",
+    "example"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^0.14.0"
+  }
+}
