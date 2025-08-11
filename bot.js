@@ -18,11 +18,12 @@ startWebServer();
 const FUTURES_TRADING_PAIR = 'PF_XBTUSD';
 const OHLC_DATA_PAIR = 'XBTUSD';
 const CANDLE_INTERVAL = 60;
+const MINIMUM_CONFIDENCE_THRESHOLD = 70; // <-- New setting! Only trade on signals with 70+ confidence.
 
 async function main() {
     log.info(`==================================================`);
-    log.info(`Bot starting up for ${FUTURES_TRADING_PAIR}...`);
-
+    log.info(`Bot trading cycle starting for ${FUTURES_TRADING_PAIR}...`);
+    log.info(`Minimum confidence threshold set to: ${MINIMUM_CONFIDENCE_THRESHOLD}`);
     const KRAKEN_API_KEY = process.env.KRAKEN_API_KEY;
     const KRAKEN_SECRET_KEY = process.env.KRAKEN_SECRET_KEY;
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -54,9 +55,10 @@ async function main() {
         const tradingSignal = await strategyEngine.generateSignal(marketData);
         log.info(`AI Signal: ${tradingSignal.signal} | Reason: ${tradingSignal.reason}`);
 
-        // Calculate and execute
-        if (tradingSignal.signal !== 'HOLD') {
-            log.info("Signal is not HOLD, calculating trade parameters...");
+        // <<-- NEW LOGIC: Check both signal and confidence -->>
+        if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
+            log.info(`High-confidence signal received (${tradingSignal.confidence} >= ${MINIMUM_CONFIDENCE_THRESHOLD}). Proceeding to risk management.`);
+            
             const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
 
             if (tradeParams) {
@@ -68,18 +70,24 @@ async function main() {
                 });
                 log.info("Trade execution process completed.");
             } else {
-                log.warn("Trade execution skipped by Risk Manager.");
+                log.warn("Trade execution skipped by Risk Manager (e.g., zero size).");
             }
         } else {
-            log.info("AI Signal is HOLD. No action taken.");
+            if (tradingSignal.signal === 'HOLD') {
+                log.info("AI Signal is HOLD. No action taken.");
+            } else {
+                log.info(`Signal (${tradingSignal.signal}) received, but confidence (${tradingSignal.confidence}) is below threshold of ${MINIMUM_CONFIDENCE_THRESHOLD}. No action taken.`);
+            }
         }
 
     } catch (error) {
         log.error("[FATAL] A critical error occurred in the bot's main loop:", error);
     } finally {
-        log.info("Bot cycle finished.");
+        log.info("Bot trading cycle finished.");
     }
 }
+
+// ... (main loop interval logic)
 // We will now wrap the main logic in a loop to run continuously.
 // Let's run the trading cycle every hour (3600 * 1000 milliseconds).
 const TRADING_INTERVAL_MS = 3600 * 1000;
