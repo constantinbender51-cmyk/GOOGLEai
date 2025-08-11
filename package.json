@@ -1,21 +1,21 @@
 {
-  "name": "gemini-prompt-example",
+  "name": "trading-bot",
   "version": "1.0.0",
-  "description": "A simple Node.js script to run a prompt with the Google Gemini API.",
-  "main": "runPrompt.js",
+  "description": "A simple and elegant trading bot for Kraken using Node.js.",
+  "main": "bot.js",
   "type": "module",
   "scripts": {
-    "start": "node runPrompt.js"
+    "start": "node bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [
-    "gemini",
-    "google",
-    "ai",
-    "example"
-  ],
-  "author": "",
+  "author": "Your Name",
   "license": "ISC",
   "dependencies": {
-    "@google/genai": "^0.14.0"
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "qs": "^6.12.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
