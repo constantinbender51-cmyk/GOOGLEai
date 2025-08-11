@@ -25,7 +25,14 @@ async function main() {
         const strategyEngine = new StrategyEngine(); // Initialize the AI engine
 
         // 2. Fetch Market Data
+        // In bot.js, inside the main() function, after fetching the data:
+
+// ...
         const marketData = await dataHandler.fetchAllData(TRADING_PAIR, CANDLE_INTERVAL);
+// Log the new data
+        console.log("\nRecent Fills:", JSON.stringify(marketData.fills, null, 2));
+// ...
+        
         console.log("\n--- Data Fetch Complete ---");
         console.log(`Last candle close price: ${marketData.ohlc[marketData.ohlc.length - 1].close}`);
 
