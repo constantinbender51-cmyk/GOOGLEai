@@ -1,7 +1,7 @@
 {
-  "name": "trading-bot",
-  "version": "1.1.0",
-  "description": "An AI-powered trading bot for Kraken using Node.js and Gemini.",
+  "name": "trading-bot-with-ui",
+  "version": "1.2.0",
+  "description": "An AI-powered trading bot for Kraken with a web-based log viewer.",
   "main": "bot.js",
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "@google/generative-ai": "^0.7.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
+    "express": "^4.19.2",  // Added express
     "qs": "^6.12.1"
   },
   "engines": {
