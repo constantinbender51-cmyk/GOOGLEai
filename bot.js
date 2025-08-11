@@ -2,45 +2,53 @@
 
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
-import { RiskManager } from './riskManager.js'; // Import the new manager
+import { RiskManager } from './riskManager.js';
+import { ExecutionHandler } from './executionHandler.js'; // Import the final module
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 // ... (API key loading)
 
+const TRADING_PAIR = 'PI_XBTUSD';
+const CANDLE_INTERVAL = 60;
+
 async function main() {
     // ... (error checking for keys)
 
     try {
-        // 1. Initialize Modules
+        // 1. Initialize All Modules
         const dataHandler = new DataHandler(process.env.KRAKEN_API_KEY, process.env.KRAKEN_SECRET_KEY);
         const strategyEngine = new StrategyEngine();
-        const riskManager = new RiskManager({ // Configure your risk here
-            riskPercentage: 1.5, // Risk 1.5% of equity per trade
-            stopLossMultiplier: 2,   // Place stop-loss 2x ATR away
-            takeProfitMultiplier: 3  // Aim for a 3:1 risk-reward ratio
-        });
+        const riskManager = new RiskManager({ riskPercentage: 1.0 });
+        // The ExecutionHandler needs the API client from the DataHandler
+        const executionHandler = new ExecutionHandler(dataHandler.api);
 
         // 2. Fetch Market Data
-        const marketData = await dataHandler.fetchAllData('PI_XBTUSD', 60);
+        const marketData = await dataHandler.fetchAllData(TRADING_PAIR, CANDLE_INTERVAL);
+        
+        // --- ADDED LOGIC: Check for existing positions before trading ---
+        if (marketData.positions?.openPositions?.length > 0) {
+            console.log("\n--- Position Already Open ---");
+            console.log("Skipping new trade signal to avoid multiple concurrent positions.");
+            console.log("Current positions:", JSON.stringify(marketData.positions.openPositions, null, 2));
+            return; // Exit the cycle
+        }
 
         // 3. Generate a Trading Signal
         const tradingSignal = await strategyEngine.generateSignal(marketData);
 
-        // 4. Calculate Trade Parameters (if signal is not HOLD)
+        // 4. Calculate Trade Parameters
         if (tradingSignal.signal !== 'HOLD') {
-            console.log("\n--- Calculating Risk Parameters ---");
             const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
 
             if (tradeParams) {
-                console.log("\n--- Final Trade Decision ---");
-                console.log(`AI Signal: ${tradingSignal.signal} (${tradingSignal.reason})`);
-                console.log(`Order Size: ${tradeParams.size} contracts`);
-                console.log(`Stop-Loss Price: ${tradeParams.stopLoss}`);
-                console.log(`Take-Profit Price: ${tradeParams.takeProfit}`);
-                console.log("----------------------------");
-                // Next step: Pass these params to the ExecutionHandler
+                // 5. EXECUTE THE TRADE
+                await executionHandler.placeOrder({
+                    signal: tradingSignal.signal,
+                    pair: TRADING_PAIR,
+                    params: tradeParams
+                });
             } else {
                 console.log("\n--- Trade Execution Skipped by Risk Manager ---");
             }
@@ -49,7 +57,8 @@ async function main() {
         }
 
     } catch (error) {
-        // ... (error handling)
+        console.error("\n[FATAL] A critical error occurred in the bot's main loop:", error.message);
+        process.exit(1);
     }
 }
 
