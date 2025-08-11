@@ -16,59 +16,53 @@ export class DataHandler {
         if (!apiKey || !apiSecret) {
             throw new Error("API key and secret are required to initialize the DataHandler.");
         }
-        // Instantiate the API client with credentials
         this.api = new KrakenFuturesApi(apiKey, apiSecret);
     }
 
     /**
      * Fetches all critical data points required for a trading decision cycle.
-     * This includes market data (OHLC), account state (balance, positions, orders).
-     * 
      * @param {string} pair - The trading pair for OHLC data (e.g., 'XBTUSD').
-     * @param {number} interval - The OHLC candle interval in minutes (e.g., 60 for 1-hour).
+     * @param {number} interval - The OHLC candle interval in minutes.
      * @returns {Promise<object>} A consolidated object containing all fetched data.
      */
     async fetchAllData(pair = 'XBTUSD', interval = 60) {
         console.log("--- Starting data fetch cycle ---");
         try {
-            // Use Promise.all to fetch data concurrently for efficiency
+            // Use Promise.all to fetch all data concurrently
             const [
                 ohlcData,
                 accountBalance,
                 openPositions,
-                openOrders
+                openOrders,
+                recentFills // Add recentFills to the concurrent fetch
             ] = await Promise.all([
                 this.fetchOhlcData({ pair, interval }),
                 this.fetchAccountBalance(),
                 this.fetchOpenPositions(),
-                this.fetchOpenOrders()
+                this.fetchOpenOrders(),
+                this.fetchRecentFills() // Call the new method
             ]);
 
             console.log("--- Data fetch cycle completed successfully ---");
 
-            // Return a single, structured object
+            // Return a single, structured object with the new data
             return {
                 ohlc: ohlcData,
                 balance: accountBalance,
                 positions: openPositions,
                 orders: openOrders,
-                // We can add trade history here later
-                // tradeHistory: null 
+                fills: recentFills // Add fills to the final object
             };
 
         } catch (error) {
             console.error("Error during the data fetch cycle:", error.message);
-            // In a real bot, you might want more sophisticated error handling,
-            // like retries or notifications.
             throw new Error("Failed to fetch all required data.");
         }
     }
 
     /**
-     * Fetches OHLC (Open, High, Low, Close) data from Kraken's public spot API.
+     * Fetches OHLC data from Kraken's public spot API.
      * @param {object} params - Parameters for the OHLC request.
-     * @param {string} params.pair - The asset pair (e.g., 'XBTUSD').
-     * @param {number} params.interval - The time frame in minutes.
      * @returns {Promise<Array<object>|null>} Formatted OHLC data.
      */
     async fetchOhlcData({ pair, interval }) {
@@ -108,6 +102,18 @@ export class DataHandler {
         console.log("Fetching open orders...");
         const data = await this.api.getOpenOrders();
         console.log(`Found ${data.openOrders?.length || 0} open orders.`);
+        return data;
+    }
+
+    /**
+     * Fetches the most recent executed trades (fills) from Kraken Futures.
+     * @returns {Promise<object>} Fills data.
+     */
+    async fetchRecentFills() {
+        console.log("Fetching recent fills (trade history)...");
+        // We can add parameters here later if we need to paginate, e.g., { lastFillTime: '...' }
+        const data = await this.api.getFills();
+        console.log(`Successfully fetched ${data.fills?.length || 0} recent fills.`);
         return data;
     }
 }
