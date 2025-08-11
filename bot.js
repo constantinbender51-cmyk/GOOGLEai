@@ -1,39 +1,41 @@
 // bot.js
 
-import { startWebServer } from './webServer.js'; // Import the web server
+import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
 import { ExecutionHandler } from './executionHandler.js';
-import { log } from './logger.js'; // Import our new logger
+import { log } from './logger.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
-
-// --- Start the Web Server ---
-// We start it outside the main logic so the UI is always available.
 startWebServer();
 
-// ... (Configuration remains the same)
+// --- Configuration ---
 const FUTURES_TRADING_PAIR = 'PF_XBTUSD';
 const OHLC_DATA_PAIR = 'XBTUSD';
 const CANDLE_INTERVAL = 60;
-const MINIMUM_CONFIDENCE_THRESHOLD = 70; // <-- New setting! Only trade on signals with 70+ confidence.
+const MINIMUM_CONFIDENCE_THRESHOLD = 70;
+const TRADING_INTERVAL_MS = 3600 * 1000; // 1 hour
 
-async function main() {
+/**
+ * The main trading logic for a single cycle.
+ */
+async function runTradingCycle() {
     log.info(`==================================================`);
     log.info(`Bot trading cycle starting for ${FUTURES_TRADING_PAIR}...`);
     log.info(`Minimum confidence threshold set to: ${MINIMUM_CONFIDENCE_THRESHOLD}`);
-    const KRAKEN_API_KEY = process.env.KRAKEN_API_KEY;
-    const KRAKEN_SECRET_KEY = process.env.KRAKEN_SECRET_KEY;
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-    if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY || !GEMINI_API_KEY) {
-        log.error("[FATAL] API keys are missing. Ensure all required keys are in your .env file.");
-        process.exit(1);
-    }
 
     try {
+        const KRAKEN_API_KEY = process.env.KRAKEN_API_KEY;
+        const KRAKEN_SECRET_KEY = process.env.KRAKEN_SECRET_KEY;
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+        if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY || !GEMINI_API_KEY) {
+            log.error("[FATAL] API keys are missing.");
+            return; // Return instead of exiting to allow the loop to continue later
+        }
+
         // Initialize modules
         const dataHandler = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
         const strategyEngine = new StrategyEngine();
@@ -41,7 +43,6 @@ async function main() {
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
         // Fetch data
-        log.info("Fetching market and account data...");
         const marketData = await dataHandler.fetchAllData(OHLC_DATA_PAIR, CANDLE_INTERVAL);
         
         const openPositions = marketData.positions?.openPositions?.filter(p => p.symbol === FUTURES_TRADING_PAIR) || [];
@@ -50,47 +51,48 @@ async function main() {
             return;
         }
 
-        // Generate signal
-        log.info("Generating trading signal from AI...");
+        // Generate and act on signal
         const tradingSignal = await strategyEngine.generateSignal(marketData);
-        log.info(`AI Signal: ${tradingSignal.signal} | Reason: ${tradingSignal.reason}`);
-
-        // <<-- NEW LOGIC: Check both signal and confidence -->>
         if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
-            log.info(`High-confidence signal received (${tradingSignal.confidence} >= ${MINIMUM_CONFIDENCE_THRESHOLD}). Proceeding to risk management.`);
-            
+            log.info(`High-confidence signal received (${tradingSignal.confidence}). Proceeding.`);
             const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
-
             if (tradeParams) {
-                log.info(`Executing trade with params: ${JSON.stringify(tradeParams)}`);
                 await executionHandler.placeOrder({
                     signal: tradingSignal.signal,
                     pair: FUTURES_TRADING_PAIR,
                     params: tradeParams
                 });
-                log.info("Trade execution process completed.");
             } else {
-                log.warn("Trade execution skipped by Risk Manager (e.g., zero size).");
+                log.warn("Trade execution skipped by Risk Manager.");
             }
         } else {
-            if (tradingSignal.signal === 'HOLD') {
-                log.info("AI Signal is HOLD. No action taken.");
-            } else {
-                log.info(`Signal (${tradingSignal.signal}) received, but confidence (${tradingSignal.confidence}) is below threshold of ${MINIMUM_CONFIDENCE_THRESHOLD}. No action taken.`);
-            }
+            log.info(`Signal is HOLD or below confidence threshold. No action taken.`);
         }
 
     } catch (error) {
-        log.error("[FATAL] A critical error occurred in the bot's main loop:", error);
+        log.error("A critical error occurred during the trading cycle:", error);
     } finally {
         log.info("Bot trading cycle finished.");
     }
 }
 
-// ... (main loop interval logic)
-// We will now wrap the main logic in a loop to run continuously.
-// Let's run the trading cycle every hour (3600 * 1000 milliseconds).
-const TRADING_INTERVAL_MS = 3600 * 1000;
+/**
+ * The main application loop using a robust recursive setTimeout.
+ */
+function mainLoop() {
+    runTradingCycle().finally(() => {
+        log.info(`Scheduling next run in ${TRADING_INTERVAL_MS / 1000 / 60} minutes.`);
+        setTimeout(mainLoop, TRADING_INTERVAL_MS);
+    });
+}
 
-log.info(`Bot configured to run trading cycle every ${TRADING_INTERVAL_MS / 1000 / 60} minutes.`);
-main();
+// --- Start the Bot ---
+log.info("Trading bot application started.");
+mainLoop(); // Start the first cycle immediately.
+
+// --- Graceful Shutdown ---
+process.on('SIGINT', () => {
+    log.warn("Shutdown signal received (SIGINT). Exiting gracefully.");
+    // Here you could add logic to cancel open orders if desired.
+    process.exit(0);
+});
