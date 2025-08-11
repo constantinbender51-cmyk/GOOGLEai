@@ -1,5 +1,6 @@
 // bot.js
 
+import { startWebServer } from './webServer.js'; // Import the web server
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
@@ -8,6 +9,10 @@ import { log } from './logger.js'; // Import our new logger
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// --- Start the Web Server ---
+// We start it outside the main logic so the UI is always available.
+startWebServer();
 
 // ... (Configuration remains the same)
 const FUTURES_TRADING_PAIR = 'PF_XBTUSD';
@@ -71,10 +76,13 @@ async function main() {
 
     } catch (error) {
         log.error("[FATAL] A critical error occurred in the bot's main loop:", error);
-        process.exit(1);
     } finally {
         log.info("Bot cycle finished.");
     }
 }
+// We will now wrap the main logic in a loop to run continuously.
+// Let's run the trading cycle every hour (3600 * 1000 milliseconds).
+const TRADING_INTERVAL_MS = 3600 * 1000;
 
+log.info(`Bot configured to run trading cycle every ${TRADING_INTERVAL_MS / 1000 / 60} minutes.`);
 main();
