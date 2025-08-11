@@ -66,7 +66,7 @@ export class DataHandler {
             // Safely navigate the object structure to find the available margin.
             // This is called optional chaining (`?.`) and prevents errors if a key doesn't exist.
             const availableMargin = data?.accounts?.flex?.currencies?.USD?.availableMargin;
-
+            console.log(availableMargin);
             if (typeof availableMargin === 'number') {
                 console.log(`Successfully fetched account balance. Tradable USD: $${availableMargin.toFixed(2)}`);
                 return availableMargin;
