@@ -3,66 +3,77 @@
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
-import { ExecutionHandler } from './executionHandler.js'; // Import the final module
+import { ExecutionHandler } from './executionHandler.js';
+import { log } from './logger.js'; // Import our new logger
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// ... (API key loading)
-
-const TRADING_PAIR = 'PI_XBTUSD';
+// ... (Configuration remains the same)
+const FUTURES_TRADING_PAIR = 'PF_XBTUSD';
+const OHLC_DATA_PAIR = 'XBTUSD';
 const CANDLE_INTERVAL = 60;
 
 async function main() {
-    // ... (try block and initializations)
+    log.info(`==================================================`);
+    log.info(`Bot starting up for ${FUTURES_TRADING_PAIR}...`);
+
+    const KRAKEN_API_KEY = process.env.KRAKEN_API_KEY;
+    const KRAKEN_SECRET_KEY = process.env.KRAKEN_SECRET_KEY;
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+    if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY || !GEMINI_API_KEY) {
+        log.error("[FATAL] API keys are missing. Ensure all required keys are in your .env file.");
+        process.exit(1);
+    }
 
     try {
-        // 1. Initialize Modules
-        const dataHandler = new DataHandler(process.env.KRAKEN_API_KEY, process.env.KRAKEN_SECRET_KEY);
+        // Initialize modules
+        const dataHandler = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
         const strategyEngine = new StrategyEngine();
-        
-        // Configure the RiskManager to use 10x leverage
-        const riskManager = new RiskManager({
-            leverage: 10,
-            stopLossMultiplier: 2,   // Keep using ATR for a dynamic stop
-            takeProfitMultiplier: 3  // Keep a 3:1 risk-reward target
-        });
-
+        const riskManager = new RiskManager({ leverage: 10 });
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
-        // ... (the rest of the main function remains the same)
+        // Fetch data
+        log.info("Fetching market and account data...");
+        const marketData = await dataHandler.fetchAllData(OHLC_DATA_PAIR, CANDLE_INTERVAL);
         
-        // 2. Fetch Market Data
-        const marketData = await dataHandler.fetchAllData('PI_XBTUSD', 60);
-        
-        if (marketData.positions?.openPositions?.length > 0) {
-            console.log("\n--- Position Already Open, skipping new trade. ---");
+        const openPositions = marketData.positions?.openPositions?.filter(p => p.symbol === FUTURES_TRADING_PAIR) || [];
+        if (openPositions.length > 0) {
+            log.info(`Position already open for ${FUTURES_TRADING_PAIR}. Skipping new trade.`);
             return;
         }
 
-        // 3. Generate Signal
+        // Generate signal
+        log.info("Generating trading signal from AI...");
         const tradingSignal = await strategyEngine.generateSignal(marketData);
+        log.info(`AI Signal: ${tradingSignal.signal} | Reason: ${tradingSignal.reason}`);
 
-        // 4. Calculate Parameters and Execute
+        // Calculate and execute
         if (tradingSignal.signal !== 'HOLD') {
+            log.info("Signal is not HOLD, calculating trade parameters...");
             const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
 
             if (tradeParams) {
+                log.info(`Executing trade with params: ${JSON.stringify(tradeParams)}`);
                 await executionHandler.placeOrder({
                     signal: tradingSignal.signal,
-                    pair: 'PI_XBTUSD',
+                    pair: FUTURES_TRADING_PAIR,
                     params: tradeParams
                 });
+                log.info("Trade execution process completed.");
             } else {
-                console.log("\n--- Trade Execution Skipped by Risk Manager ---");
+                log.warn("Trade execution skipped by Risk Manager.");
             }
         } else {
-            console.log("\n--- AI Signal is HOLD. No action taken. ---");
+            log.info("AI Signal is HOLD. No action taken.");
         }
 
     } catch (error) {
-        console.error("\n[FATAL] A critical error occurred in the bot's main loop:", error.message);
+        log.error("[FATAL] A critical error occurred in the bot's main loop:", error);
         process.exit(1);
+    } finally {
+        log.info("Bot cycle finished.");
     }
 }
 
