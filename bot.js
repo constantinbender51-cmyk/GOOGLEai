@@ -1,54 +1,55 @@
+// bot.js
+
 import { DataHandler } from './dataHandler.js';
-import { StrategyEngine } from './strategyEngine.js'; // Import the new engine
+import { StrategyEngine } from './strategyEngine.js';
+import { RiskManager } from './riskManager.js'; // Import the new manager
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const KRAKEN_API_KEY = process.env.KRAKEN_API_KEY;
-const KRAKEN_SECRET_KEY = process.env.KRAKEN_SECRET_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Ensure Gemini key is loaded
-
-const TRADING_PAIR = 'PI_XBTUSD';
-const CANDLE_INTERVAL = 60;
+// ... (API key loading)
 
 async function main() {
-    console.log("Initializing Trading Bot...");
-
-    if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY || !GEMINI_API_KEY) {
-        console.error("[FATAL] API keys are missing. Ensure KRAKEN_API_KEY, KRAKEN_SECRET_KEY, and GEMINI_API_KEY are in your .env file.");
-        process.exit(1);
-    }
+    // ... (error checking for keys)
 
     try {
         // 1. Initialize Modules
-        const dataHandler = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
-        const strategyEngine = new StrategyEngine(); // Initialize the AI engine
+        const dataHandler = new DataHandler(process.env.KRAKEN_API_KEY, process.env.KRAKEN_SECRET_KEY);
+        const strategyEngine = new StrategyEngine();
+        const riskManager = new RiskManager({ // Configure your risk here
+            riskPercentage: 1.5, // Risk 1.5% of equity per trade
+            stopLossMultiplier: 2,   // Place stop-loss 2x ATR away
+            takeProfitMultiplier: 3  // Aim for a 3:1 risk-reward ratio
+        });
 
         // 2. Fetch Market Data
-        // In bot.js, inside the main() function, after fetching the data:
-
-// ...
-        const marketData = await dataHandler.fetchAllData(TRADING_PAIR, CANDLE_INTERVAL);
-// Log the new data
-        console.log("\nRecent Fills:", JSON.stringify(marketData.fills, null, 2));
-// ...
-        
-        console.log("\n--- Data Fetch Complete ---");
-        console.log(`Last candle close price: ${marketData.ohlc[marketData.ohlc.length - 1].close}`);
+        const marketData = await dataHandler.fetchAllData('PI_XBTUSD', 60);
 
         // 3. Generate a Trading Signal
-        console.log("\n--- Generating Trading Signal ---");
         const tradingSignal = await strategyEngine.generateSignal(marketData);
 
-        // 4. Display the result
-        console.log("\n--- Final Trading Decision ---");
-        console.log(`Signal: ${tradingSignal.signal}`);
-        console.log(`Reason: ${tradingSignal.reason}`);
-        console.log("------------------------------");
+        // 4. Calculate Trade Parameters (if signal is not HOLD)
+        if (tradingSignal.signal !== 'HOLD') {
+            console.log("\n--- Calculating Risk Parameters ---");
+            const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
+
+            if (tradeParams) {
+                console.log("\n--- Final Trade Decision ---");
+                console.log(`AI Signal: ${tradingSignal.signal} (${tradingSignal.reason})`);
+                console.log(`Order Size: ${tradeParams.size} contracts`);
+                console.log(`Stop-Loss Price: ${tradeParams.stopLoss}`);
+                console.log(`Take-Profit Price: ${tradeParams.takeProfit}`);
+                console.log("----------------------------");
+                // Next step: Pass these params to the ExecutionHandler
+            } else {
+                console.log("\n--- Trade Execution Skipped by Risk Manager ---");
+            }
+        } else {
+            console.log("\n--- AI Signal is HOLD. No action taken. ---");
+        }
 
     } catch (error) {
-        console.error("\n[FATAL] A critical error occurred in the bot's main loop:", error.message);
-        process.exit(1);
+        // ... (error handling)
     }
 }
 
