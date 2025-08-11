@@ -22,6 +22,10 @@ export class StrategyEngine {
         console.log("StrategyEngine initialized with Gemini 1.5 Flash model.");
     }
 
+    // strategyEngine.js
+
+// ... (keep the rest of the file the same)
+
     /**
      * Constructs a detailed prompt for the Gemini AI based on the current market data.
      * @private
@@ -29,10 +33,14 @@ export class StrategyEngine {
      * @returns {string} A formatted prompt string.
      */
     _createPrompt(marketData) {
-        const { ohlc, balance, positions, orders } = marketData;
+        const { ohlc, balance, positions, orders, fills } = marketData; // Destructure fills
         const lastCandle = ohlc[ohlc.length - 1];
 
-        // This prompt is engineered to be clear, provide context, and demand a specific output format.
+        // Format the fills data cleanly for the prompt
+        const recentFillsText = fills.fills?.length > 0 
+            ? JSON.stringify(fills.fills.slice(0, 5), null, 2) // Show up to 5 most recent fills
+            : "None";
+
         return `
             You are an expert trading analysis AI. Your task is to analyze the provided market data and return a trading signal in a strict JSON format.
 
@@ -42,6 +50,7 @@ export class StrategyEngine {
             - My Current Account Balance: ${JSON.stringify(balance.accounts, null, 2)}
             - My Current Open Positions: ${JSON.stringify(positions.openPositions, null, 2) || "None"}
             - My Current Open Orders: ${JSON.stringify(orders.openOrders, null, 2) || "None"}
+            - My 5 Most Recent Trades (Fills): ${recentFillsText}
 
             **Latest Market Data (OHLC):**
             The last candlestick shows:
@@ -65,6 +74,9 @@ export class StrategyEngine {
             Example: {"signal": "LONG", "reason": "The price has broken a key resistance level on high volume."}
         `;
     }
+
+// ... (rest of the file is the same)
+
 
     /**
      * Analyzes market data and generates a trading signal using the Gemini AI.
