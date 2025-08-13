@@ -42,6 +42,9 @@ async function runTradingCycle() {
         const riskManager = new RiskManager({ leverage: 10 });
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
+        //TEST_RUN: START 
+        await executionHandler.placeOrder(
+        //TEST_RUN: FINISH 
         // Fetch data
         const marketData = await dataHandler.fetchAllData(OHLC_DATA_PAIR, CANDLE_INTERVAL);
         
