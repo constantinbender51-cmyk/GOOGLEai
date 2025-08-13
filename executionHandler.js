@@ -44,7 +44,7 @@ export class ExecutionHandler {
 
         try {
             //TRST_RUN: START 
-            const testBatch = {
+           /* const testBatch = {
                 batchOrder: [
     {
       order: 'send',
@@ -74,16 +74,15 @@ export class ExecutionHandler {
             console.log("--- Test Batch Order Response Received ---");
             console.log(JSON.stringify(testResponse, null, 2));
             
-            //TEST_RUN: FINISH 
+            *///TEST_RUN: FINISH 
             // Kraken Futures allows sending multiple orders in a single request using 'batchorder'.
             // This is the most robust way to place an entry with its corresponding SL/TP orders.
             const batchOrderPayload = {
-                element: 'batch',
-                orders: [
+                batchOrder: [
                     // 1. The Main Entry Order (Market Order)
                     {
                         order: 'send',
-                        order_tag: '1', // Tag for identification
+                        order_tag: '1',
                         orderType: 'mkt', // Market order for immediate execution
                         symbol: pair,
                         side: entrySide,
@@ -98,8 +97,7 @@ export class ExecutionHandler {
                         side: closeSide,
                         size: size,
                         stopPrice: stopLoss,
-                        // 'reduceOnly' ensures this order only closes a position, not opens a new one
-                        reduceOnly: true 
+                        reduceOnly: true // Safety: only closes a position
                     },
                     // 3. The Take-Profit Order
                     {
@@ -110,7 +108,7 @@ export class ExecutionHandler {
                         side: closeSide,
                         size: size,
                         limitPrice: takeProfit,
-                        reduceOnly: true
+                        reduceOnly: true // Safety: only closes a position
                     }
                 ]
             };
