@@ -1,137 +1,101 @@
 // executionHandler.js
 
+import { log } from './logger.js';
+
 /**
  * @class ExecutionHandler
- * @description Handles the placement of orders on the exchange.
+ * @description Handles the placement of orders on the exchange using batch orders.
  */
 export class ExecutionHandler {
-    /**
-     * @param {object} api - An instance of the KrakenFuturesApi client.
-     */
     constructor(api) {
         if (!api) {
             throw new Error("ExecutionHandler requires an instance of the KrakenFuturesApi client.");
         }
         this.api = api;
-        console.log("ExecutionHandler initialized.");
+        log.info("ExecutionHandler initialized.");
     }
 
     /**
-     * Places a complete trade (entry, stop-loss, and take-profit) on the exchange.
-     * 
+     * Places a complete trade using a batch of limit and stop orders.
      * @param {object} tradeDetails - The details of the trade to be executed.
-     * @param {string} tradeDetails.signal - The trading signal ('LONG' or 'SHORT').
-     * @param {string} tradeDetails.pair - The trading pair symbol (e.g., 'PI_XBTUSD').
-     * @param {object} tradeDetails.params - The parameters from the RiskManager.
-     * @param {number} tradeDetails.params.size - The size of the order.
-     * @param {number} tradeDetails.params.stopLoss - The stop-loss price.
-     * @param {number} tradeDetails.params.takeProfit - The take-profit price.
+     * @param {number} lastPrice - The current price of the asset, needed to set the entry limit price.
      * @returns {Promise<object>} The API response from the batch order placement.
      */
-    async placeOrder({ signal, pair, params }) {
+    async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
 
-        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit) {
-            throw new Error("Invalid trade details provided to ExecutionHandler.");
+        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
+            throw new Error("Invalid trade details provided to ExecutionHandler, lastPrice is required.");
         }
 
-        // Determine the direction for the entry order
         const entrySide = (signal === 'LONG') ? 'buy' : 'sell';
-        // The side for the closing orders (stop-loss/take-profit) is opposite to the entry
         const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
 
-        console.log(`--- Preparing to place ${signal} order for ${size} contracts of ${pair} ---`);
+        // --- CRITICAL CHANGE: Create an aggressive limit price for the entry order ---
+        // This makes the limit order behave like a market order.
+        // We'll set the limit 0.1% away from the last price to ensure it fills.
+        const slippagePercent = 0.001; 
+        const entryLimitPrice = (signal === 'LONG')
+            ? Math.round(lastPrice * (1 + slippagePercent))
+            : Math.round(lastPrice * (1 - slippagePercent));
+
+        log.info(`Preparing to place ${signal} order for ${size} BTC of ${pair}`);
 
         try {
-            //TRST_RUN: START 
-           /* const testBatch = {
-                batchOrder: [
-    {
-      order: 'send',
-      order_tag: '1',
-      orderType: 'lmt',
-      symbol: 'PF_XBTUSD',
-      side: 'buy',
-      size: 0.001,
-      limitPrice: 124000,
-      cliOrdId: 'my_another_client_id',
-    },
-    {
-      order: 'send',
-      order_tag: '2',
-      orderType: 'stp',
-      symbol: 'PF_XBTUSD',
-      side: 'buy',
-      size: 0.002,
-      limitPrice: 123000,
-      stopPrice: 115000,
-    }
-                 ],
-              };
-            console.log("Sending Test Order to Kraken:", JSON.stringify(testBatch, null, 2));
-            
-            const testResponse = await this.api.batchOrder({ json: JSON.stringify(testBatch) });
-            console.log("--- Test Batch Order Response Received ---");
-            console.log(JSON.stringify(testResponse, null, 2));
-            
-            *///TEST_RUN: FINISH 
-            // Kraken Futures allows sending multiple orders in a single request using 'batchorder'.
-            // This is the most robust way to place an entry with its corresponding SL/TP orders.
             const batchOrderPayload = {
                 batchOrder: [
-                    // 1. The Main Entry Order (Market Order)
+                    // 1. The Main Entry Order (NOW A LIMIT ORDER)
                     {
                         order: 'send',
                         order_tag: '1',
-                        orderType: 'mkt', // Market order for immediate execution
+                        orderType: 'lmt', // Changed from 'mkt' to 'lmt'
                         symbol: pair,
                         side: entrySide,
                         size: size,
+                        limitPrice: entryLimitPrice, // Added aggressive limit price
                     },
-                    // 2. The Stop-Loss Order
+                    // 2. The Stop-Loss Order (remains the same)
                     {
                         order: 'send',
                         order_tag: '2',
-                        orderType: 'stp', // Stop order
+                        orderType: 'stp',
                         symbol: pair,
                         side: closeSide,
                         size: size,
                         stopPrice: stopLoss,
-                        reduceOnly: true // Safety: only closes a position
+                        reduceOnly: true
                     },
-                    // 3. The Take-Profit Order
+                    // 3. The Take-Profit Order (remains the same)
                     {
                         order: 'send',
                         order_tag: '3',
-                        orderType: 'lmt', // Limit order
+                        orderType: 'lmt',
                         symbol: pair,
                         side: closeSide,
                         size: size,
                         limitPrice: takeProfit,
-                        reduceOnly: true // Safety: only closes a position
+                        reduceOnly: true
                     }
                 ]
             };
 
-            console.log("Sending Batch Order to Kraken:", JSON.stringify(batchOrderPayload, null, 2));
+            log.info(`Sending corrected Batch Order (LMT entry) to Kraken: ${JSON.stringify(batchOrderPayload, null, 2)}`);
 
-            // Use the batchOrder method from our API client
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
-            console.log("--- Batch Order Response Received ---");
-            console.log(JSON.stringify(response, null, 2));
+            log.info(`Batch Order Response Received: ${JSON.stringify(response, null, 2)}`);
 
             if (response.result === 'success') {
-                console.log("✅ Successfully placed batch order!");
+                log.info("✅ Successfully placed batch order!");
             } else {
-                console.error("❌ Failed to place batch order.", response);
+                log.error("❌ Failed to place batch order.", response);
             }
 
             return response;
 
         } catch (error) {
-            console.error("❌ CRITICAL ERROR in ExecutionHandler:", error.message);
-            throw error; // Re-throw the error to be caught by the main loop
+            log.error("❌ CRITICAL ERROR in ExecutionHandler during order placement:", error);
+            throw error;
         }
     }
 }
