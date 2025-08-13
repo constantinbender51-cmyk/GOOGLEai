@@ -52,8 +52,8 @@ export class ExecutionHandler {
       orderType: 'lmt',
       symbol: 'PF_XBTUSD',
       side: 'buy',
-      size: 0.0007,
-      limitPrice: 1.0,
+      size: 0.001,
+      limitPrice: 124000,
       cliOrdId: 'my_another_client_id',
     },
     {
@@ -62,9 +62,9 @@ export class ExecutionHandler {
       orderType: 'stp',
       symbol: 'PF_XBTUSD',
       side: 'buy',
-      size: 0.0007,
-      limitPrice: 2.0,
-      stopPrice: 3.0,
+      size: 0.002,
+      limitPrice: 123000,
+      stopPrice: 115000,
     }
                  ],
               };
