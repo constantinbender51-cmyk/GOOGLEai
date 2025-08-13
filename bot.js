@@ -44,14 +44,14 @@ async function runTradingCycle() {
 
         //TEST_RUN: START 
         const testTradeParams = {
-            size: 0.0007, // Use toFixed for reasonable precision, matching Min Lot.
-            stopLoss: 2,
-            takeProfit: 3,
+            ,
         };
         await executionHandler.placeOrder({
                     signal: "send",
                     pair: "pf_xbtusd",
-                    params: testTradeParams
+                    size: 0.0007, // Use toFixed for reasonable precision, matching Min Lot.
+            stopLoss: 2,
+            takeProfit: 3
                 });
         //TEST_RUN: FINISH 
         // Fetch data
