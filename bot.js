@@ -43,9 +43,6 @@ async function runTradingCycle() {
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
         //TEST_RUN: START 
-        const testTradeParams = {
-            ,
-        };
         await executionHandler.placeOrder({
                     signal: "send",
                     pair: "pf_xbtusd",
