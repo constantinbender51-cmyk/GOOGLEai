@@ -62,21 +62,30 @@ async function runTradingCycle() {
 
         // Generate and act on signal
         const tradingSignal = await strategyEngine.generateSignal(marketData);
-        if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
-            log.info(`High-confidence signal received (${tradingSignal.confidence}). Proceeding.`);
-            const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
-            if (tradeParams) {
-                await executionHandler.placeOrder({
-                    signal: tradingSignal.signal,
-                    pair: FUTURES_TRADING_PAIR,
-                    params: tradeParams
-                });
-            } else {
-                log.warn("Trade execution skipped by Risk Manager.");
-            }
-        } else {
-            log.info(`Signal is HOLD or below confidence threshold. No action taken.`);
-        }
+        // In bot.js, inside runTradingCycle()
+
+// ... (after generating the tradingSignal)
+
+if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
+    log.info(`High-confidence signal received (${tradingSignal.confidence}). Proceeding.`);
+    
+    const tradeParams = riskManager.calculateTradeParameters(marketData, tradingSignal);
+    
+    if (tradeParams) {
+        // Get the last price from the market data
+        const lastPrice = marketData.ohlc[marketData.ohlc.length - 1].close;
+
+        await executionHandler.placeOrder({
+            signal: tradingSignal.signal,
+            pair: FUTURES_TRADING_PAIR,
+            params: tradeParams,
+            lastPrice: lastPrice // <-- Pass the last price here
+        });
+    } else {
+        log.warn("Trade execution skipped by Risk Manager.");
+    }
+}
+// ...
 
     } catch (error) {
         log.error("A critical error occurred during the trading cycle:", error);
