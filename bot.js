@@ -46,9 +46,9 @@ async function runTradingCycle() {
         await executionHandler.placeOrder({
                     signal: "send",
                     pair: "pf_xbtusd",
-                    size: 0.0007, // Use toFixed for reasonable precision, matching Min Lot.
+                    params:  { size: 0.0007, // Use toFixed for reasonable precision, matching Min Lot.
             stopLoss: 2,
-            takeProfit: 3
+            takeProfit: 3 }
                 });
         //TEST_RUN: FINISH 
         // Fetch data
