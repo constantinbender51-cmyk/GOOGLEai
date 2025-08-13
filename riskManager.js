@@ -1,5 +1,7 @@
 // riskManager.js
 
+import { log } from './logger.js';
+
 /**
  * @class RiskManager
  * @description Handles position sizing for BTC-denominated contracts like PF_XBTUSD.
@@ -10,14 +12,14 @@ export class RiskManager {
         this.stopLossMultiplier = config.stopLossMultiplier || 2.0;
         this.takeProfitMultiplier = config.takeProfitMultiplier || 3.0;
 
-        console.log("RiskManager initialized for BTC-DENOMINATED contracts (PF_XBTUSD):");
-        console.log(`- Desired Leverage: ${this.leverage}x`);
+        log.info("RiskManager initialized for BTC-DENOMINATED contracts (PF_XBTUSD):");
+        log.info(`- Desired Leverage: ${this.leverage}x`);
     }
 
     _calculateATR(ohlcData, period = 14) {
         // This helper function remains the same
         if (ohlcData.length < period) {
-            console.warn("Not enough OHLC data to calculate ATR.");
+            log.warn("Not enough OHLC data to calculate ATR.");
             return (ohlcData[ohlcData.length - 1].high - ohlcData[ohlcData.length - 1].low) || 0;
         }
         let trueRanges = [];
@@ -34,7 +36,7 @@ export class RiskManager {
     }
 
     /**
-     * Calculates trade parameters, converting USD notional value to a BTC order size.
+     * Calculates trade parameters, ensuring prices adhere to the instrument's tick size.
      * @param {object} marketData - The consolidated data from the DataHandler.
      * @param {object} tradingSignal - The signal object from the StrategyEngine.
      * @returns {object|null} An object with trade parameters or null.
@@ -48,58 +50,54 @@ export class RiskManager {
 
         const accountEquityUSD = balance;
         if (typeof accountEquityUSD !== 'number' || accountEquityUSD <= 0) {
-            console.error("RiskManager: Invalid account equity (USD). Must be a positive number.");
+            log.error("RiskManager: Invalid account equity (USD). Must be a positive number.");
             return null;
         }
 
-        // 1. Calculate the total desired notional value of the position in USD.
         const notionalValueUSD = accountEquityUSD * this.leverage;
-
-        // 2. Convert the USD notional value to the BTC order size.
-        // This is the CRITICAL correction based on your information.
         if (lastPrice <= 0) {
-            console.error("RiskManager: Invalid last price, cannot convert to BTC size.");
+            log.error("RiskManager: Invalid last price, cannot convert to BTC size.");
             return null;
         }
         const positionSizeInBTC = notionalValueUSD / lastPrice;
 
-        // We don't Math.floor() here, as we need the precision. The exchange will handle lot sizes.
-        
         if (positionSizeInBTC <= 0) {
-            console.warn("RiskManager: Calculated BTC position size is zero. Skipping trade.");
+            log.warn("RiskManager: Calculated BTC position size is zero. Skipping trade.");
             return null;
         }
 
-        // 3. Calculate Stop-Loss and Take-Profit (this logic is unaffected)
         const atr = this._calculateATR(ohlc);
         if (atr === 0) {
-            console.error("RiskManager: ATR is zero, cannot calculate a valid stop-loss.");
+            log.error("RiskManager: ATR is zero, cannot calculate a valid stop-loss.");
             return null;
         }
         const stopLossDistance = atr * this.stopLossMultiplier;
         
-        const stopLossPrice = (signal === 'LONG') 
+        const rawStopLossPrice = (signal === 'LONG') 
             ? lastPrice - stopLossDistance 
             : lastPrice + stopLossDistance;
 
-        const takeProfitPrice = (signal === 'LONG')
+        const rawTakeProfitPrice = (signal === 'LONG')
             ? lastPrice + (stopLossDistance * this.takeProfitMultiplier)
             : lastPrice - (stopLossDistance * this.takeProfitMultiplier);
 
+        // --- CRITICAL CORRECTION FOR TICK SIZE ---
+        // Round the prices to the nearest whole number to match the tick size of 1.
+        const finalStopLossPrice = Math.round(rawStopLossPrice);
+        const finalTakeProfitPrice = Math.round(rawTakeProfitPrice);
+
         const tradeParams = {
-            size: parseFloat(positionSizeInBTC.toFixed(4)), // Use toFixed for reasonable precision, matching Min Lot.
-            stopLoss: parseFloat(stopLossPrice.toFixed(2)),
-            takeProfit: parseFloat(takeProfitPrice.toFixed(2)),
+            size: parseFloat(positionSizeInBTC.toFixed(4)), // Size can be a float (BTC)
+            stopLoss: finalStopLossPrice,                   // Price must be an integer
+            takeProfit: finalTakeProfitPrice,               // Price must be an integer
         };
         
-        console.log("--- Risk Calculation Complete (BTC-Denominated Model) ---");
-        console.log(`- Account Equity (USD): $${accountEquityUSD.toFixed(2)}`);
-        console.log(`- Desired Leverage: ${this.leverage}x`);
-        console.log(`- Notional Value (USD): $${notionalValueUSD.toFixed(2)}`);
-        console.log(`- Current BTC Price: $${lastPrice}`);
-        console.log(`- Calculated Position Size (BTC): ${tradeParams.size}`);
-        console.log("Calculated Trade Parameters:", tradeParams);
+        log.info("--- Risk Calculation Complete (BTC-Denominated, Tick-Aware) ---");
+        log.info(`- Notional Value (USD): $${notionalValueUSD.toFixed(2)}`);
+        log.info(`- Calculated Position Size (BTC): ${tradeParams.size}`);
+        log.info(`- Raw SL/TP: ${rawStopLossPrice.toFixed(2)} / ${rawTakeProfitPrice.toFixed(2)}`);
+        log.info(`- Final Rounded SL/TP: ${tradeParams.stopLoss} / ${tradeParams.takeProfit}`);
         
         return tradeParams;
     }
-    }
+}
