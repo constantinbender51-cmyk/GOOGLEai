@@ -43,7 +43,16 @@ async function runTradingCycle() {
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
         //TEST_RUN: START 
-        await executionHandler.placeOrder('send', 'pf_xbtusd' , '0.0007', {
+        const testTradeParams = {
+            size: 0.0007, // Use toFixed for reasonable precision, matching Min Lot.
+            stopLoss: 2,
+            takeProfit: 3,
+        };
+        await executionHandler.placeOrder({
+                    signal: "send",
+                    pair: "pf_xbtusd",
+                    params: testTradeParams
+                });
         //TEST_RUN: FINISH 
         // Fetch data
         const marketData = await dataHandler.fetchAllData(OHLC_DATA_PAIR, CANDLE_INTERVAL);
