@@ -39,7 +39,7 @@ async function runTradingCycle() {
         // Initialize modules
         const dataHandler = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
         const strategyEngine = new StrategyEngine();
-        const riskManager = new RiskManager({ leverage: 10 });
+        const riskManager = new RiskManager({ leverage: 10, marginBuffer: 0,05});
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
         //TEST_RUN: START 
