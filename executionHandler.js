@@ -43,6 +43,38 @@ export class ExecutionHandler {
         console.log(`--- Preparing to place ${signal} order for ${size} contracts of ${pair} ---`);
 
         try {
+            //TRST_RUN: START 
+            const testBatch = {
+                batchOrder: [
+    {
+      order: 'send',
+      order_tag: '1',
+      orderType: 'lmt',
+      symbol: 'PF_XBTUSD',
+      side: 'buy',
+      size: 0.0007,
+      limitPrice: 1.0,
+      cliOrdId: 'my_another_client_id',
+    },
+    {
+      order: 'send',
+      order_tag: '2',
+      orderType: 'stp',
+      symbol: 'PF_XBTUSD',
+      side: 'buy',
+      size: 0.0007,
+      limitPrice: 2.0,
+      stopPrice: 3.0,
+    }
+                 ],
+              };
+            console.log("Sending Test Order to Kraken:", JSON.stringify(testBatch, null, 2));
+            
+            const testResponse = await this.api.batchOrder({ json: JSON.stringify(testBatch) });
+            console.log("--- Test Batch Order Response Received ---");
+            console.log(JSON.stringify(testResponse, null, 2));
+            
+            //TEST_RUN: FINISH 
             // Kraken Futures allows sending multiple orders in a single request using 'batchorder'.
             // This is the most robust way to place an entry with its corresponding SL/TP orders.
             const batchOrderPayload = {
