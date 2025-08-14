@@ -16,9 +16,8 @@ export class ExecutionHandler {
     }
 
     /**
-     * Places a complete trade using a batch of limit and stop orders.
+     * Places a complete trade using a batch of limit and stop-limit orders.
      * @param {object} tradeDetails - The details of the trade to be executed.
-     * @param {number} lastPrice - The current price of the asset, needed to set the entry limit price.
      * @returns {Promise<object>} The API response from the batch order placement.
      */
     async placeOrder({ signal, pair, params, lastPrice }) {
@@ -31,30 +30,35 @@ export class ExecutionHandler {
         const entrySide = (signal === 'LONG') ? 'buy' : 'sell';
         const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
 
-        // --- CRITICAL CHANGE: Create an aggressive limit price for the entry order ---
-        // This makes the limit order behave like a market order.
-        // We'll set the limit 0.1% away from the last price to ensure it fills.
-        const slippagePercent = 0.001; 
+        // Aggressive limit price for the entry order to mimic a market order
+        const entrySlippagePercent = 0.001; // 0.1%
         const entryLimitPrice = (signal === 'LONG')
-            ? Math.round(lastPrice * (1 + slippagePercent))
-            : Math.round(lastPrice * (1 - slippagePercent));
+            ? Math.round(lastPrice * (1 + entrySlippagePercent))
+            : Math.round(lastPrice * (1 - entrySlippagePercent));
+
+        // --- CRITICAL CHANGE: Add a limit price to the stop order ---
+        // To make the stop-limit order behave like a stop-market, we add a slippage buffer.
+        const stopSlippagePercent = 0.01; // 1% slippage buffer for the stop, should be wider
+        const stopLimitPrice = (closeSide === 'sell') // Closing a LONG position
+            ? Math.round(stopLoss * (1 - stopSlippagePercent)) // Sell stop: limit price is lower
+            : Math.round(stopLoss * (1 + stopSlippagePercent)); // Buy stop: limit price is higher
 
         log.info(`Preparing to place ${signal} order for ${size} BTC of ${pair}`);
 
         try {
             const batchOrderPayload = {
                 batchOrder: [
-                    // 1. The Main Entry Order (NOW A LIMIT ORDER)
+                    // 1. The Main Entry Order (Limit Order)
                     {
                         order: 'send',
                         order_tag: '1',
-                        orderType: 'lmt', // Changed from 'mkt' to 'lmt'
+                        orderType: 'lmt',
                         symbol: pair,
                         side: entrySide,
                         size: size,
-                        limitPrice: entryLimitPrice, // Added aggressive limit price
+                        limitPrice: entryLimitPrice,
                     },
-                    // 2. The Stop-Loss Order (remains the same)
+                    // 2. The Stop-Loss Order (NOW A STOP-LIMIT)
                     {
                         order: 'send',
                         order_tag: '2',
@@ -63,9 +67,10 @@ export class ExecutionHandler {
                         side: closeSide,
                         size: size,
                         stopPrice: stopLoss,
+                        limitPrice: stopLimitPrice, // The required limit price for the stop
                         reduceOnly: true
                     },
-                    // 3. The Take-Profit Order (remains the same)
+                    // 3. The Take-Profit Order (Limit Order)
                     {
                         order: 'send',
                         order_tag: '3',
@@ -79,7 +84,7 @@ export class ExecutionHandler {
                 ]
             };
 
-            log.info(`Sending corrected Batch Order (LMT entry) to Kraken: ${JSON.stringify(batchOrderPayload, null, 2)}`);
+            log.info(`Sending corrected Batch Order (Stop-Limit) to Kraken: ${JSON.stringify(batchOrderPayload, null, 2)}`);
 
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
