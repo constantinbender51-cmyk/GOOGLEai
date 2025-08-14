@@ -77,11 +77,15 @@ if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFI
     
 // ...
 if (tradeParams) {
-    // The call is now simpler, no lastPrice needed for execution
+    // Get the last price from the market data
+    const lastPrice = marketData.ohlc[marketData.ohlc.length - 1].close;
+
+    // Pass lastPrice back to the execution handler
     await executionHandler.placeOrder({
         signal: tradingSignal.signal,
         pair: FUTURES_TRADING_PAIR,
-        params: tradeParams
+        params: tradeParams,
+        lastPrice: lastPrice 
     });
 } else {
         log.warn("Trade execution skipped by Risk Manager.");
