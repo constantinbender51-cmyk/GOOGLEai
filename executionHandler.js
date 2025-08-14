@@ -4,7 +4,7 @@ import { log } from './logger.js';
 
 /**
  * @class ExecutionHandler
- * @description Places a trade using a true market order for entry and a stop-limit for protection.
+ * @description Places a trade using an aggressive limit order for entry and a stop-limit for protection.
  */
 export class ExecutionHandler {
     constructor(api) {
@@ -15,17 +15,23 @@ export class ExecutionHandler {
         log.info("ExecutionHandler initialized.");
     }
 
-    async placeOrder({ signal, pair, params }) { // No longer needs lastPrice
+    async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
 
-        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit) {
-            throw new Error("Invalid trade details provided to ExecutionHandler.");
+        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
+            throw new Error("Invalid trade details provided to ExecutionHandler, lastPrice is required.");
         }
 
         const entrySide = (signal === 'LONG') ? 'buy' : 'sell';
         const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
 
-        // Create a stop-limit order for the stop-loss, as this is the only working method.
+        // Use an aggressive limit price for the entry order to simulate a market order.
+        const entrySlippagePercent = 0.001; // 0.1%
+        const entryLimitPrice = (signal === 'LONG')
+            ? Math.round(lastPrice * (1 + entrySlippagePercent))
+            : Math.round(lastPrice * (1 - entrySlippagePercent));
+
+        // Create a stop-limit order for the stop-loss.
         const stopSlippagePercent = 0.01; // 1% slippage buffer
         const stopLimitPrice = (closeSide === 'sell')
             ? Math.round(stopLoss * (1 - stopSlippagePercent))
@@ -49,15 +55,15 @@ export class ExecutionHandler {
 
             const batchOrderPayload = {
                 batchOrder: [
-                    // --- FINAL REFINEMENT: Use 'stp' for a true market order entry ---
+                    // 1. The Main Entry Order (Aggressive Limit)
                     {
                         order: 'send',
                         order_tag: '1',
-                        orderType: 'stp', // Using 'stp' with no price points
+                        orderType: 'lmt',
                         symbol: pair,
                         side: entrySide,
                         size: size,
-                        // No limitPrice or stopPrice, creating an immediate market order
+                        limitPrice: entryLimitPrice,
                     },
                     // 2. The Stop-Loss Order (Stop-Limit)
                     stopLossOrder,
@@ -75,7 +81,7 @@ export class ExecutionHandler {
                 ]
             };
 
-            log.info(`Sending Final, Most Elegant Batch Order to Kraken: ${JSON.stringify(batchOrderPayload, null, 2)}`);
+            log.info(`Reverting to working Batch Order (Aggressive LMT Entry): ${JSON.stringify(batchOrderPayload, null, 2)}`);
 
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
