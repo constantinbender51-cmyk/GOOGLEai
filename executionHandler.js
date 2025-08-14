@@ -4,7 +4,7 @@ import { log } from './logger.js';
 
 /**
  * @class ExecutionHandler
- * @description Handles the placement of orders on the exchange, respecting the strict API parameter order.
+ * @description Places a trade using a true market order for entry and a stop-limit for protection.
  */
 export class ExecutionHandler {
     constructor(api) {
@@ -15,22 +15,18 @@ export class ExecutionHandler {
         log.info("ExecutionHandler initialized.");
     }
 
-    async placeOrder({ signal, pair, params, lastPrice }) {
+    async placeOrder({ signal, pair, params }) { // No longer needs lastPrice
         const { size, stopLoss, takeProfit } = params;
 
-        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
-            throw new Error("Invalid trade details provided to ExecutionHandler, lastPrice is required.");
+        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit) {
+            throw new Error("Invalid trade details provided to ExecutionHandler.");
         }
 
         const entrySide = (signal === 'LONG') ? 'buy' : 'sell';
         const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
 
-        const entrySlippagePercent = 0.001;
-        const entryLimitPrice = (signal === 'LONG')
-            ? Math.round(lastPrice * (1 + entrySlippagePercent))
-            : Math.round(lastPrice * (1 - entrySlippagePercent));
-
-        const stopSlippagePercent = 0.01;
+        // Create a stop-limit order for the stop-loss, as this is the only working method.
+        const stopSlippagePercent = 0.01; // 1% slippage buffer
         const stopLimitPrice = (closeSide === 'sell')
             ? Math.round(stopLoss * (1 - stopSlippagePercent))
             : Math.round(stopLoss * (1 + stopSlippagePercent));
@@ -38,7 +34,7 @@ export class ExecutionHandler {
         log.info(`Preparing to place ${signal} order for ${size} BTC of ${pair}`);
 
         try {
-            // --- FINAL CORRECTION: Construct the stop-loss order with the exact documented key order ---
+            // Construct the stop-loss order with the required key order.
             const stopLossOrder = {
                 order: 'send',
                 order_tag: '2',
@@ -46,25 +42,24 @@ export class ExecutionHandler {
                 symbol: pair,
                 side: closeSide,
                 size: size,
-                // Enforce the documented order: limitPrice first, then stopPrice.
-                limitPrice: stopLimitPrice,
+                limitPrice: stopLimitPrice, // Required for the order to be accepted
                 stopPrice: stopLoss,
                 reduceOnly: true
             };
 
             const batchOrderPayload = {
                 batchOrder: [
-                    // 1. The Main Entry Order (Limit Order)
+                    // --- FINAL REFINEMENT: Use 'stp' for a true market order entry ---
                     {
                         order: 'send',
                         order_tag: '1',
-                        orderType: 'lmt',
+                        orderType: 'stp', // Using 'stp' with no price points
                         symbol: pair,
                         side: entrySide,
                         size: size,
-                        limitPrice: entryLimitPrice,
+                        // No limitPrice or stopPrice, creating an immediate market order
                     },
-                    // 2. The Stop-Loss Order (with correct, enforced key order)
+                    // 2. The Stop-Loss Order (Stop-Limit)
                     stopLossOrder,
                     // 3. The Take-Profit Order (Limit Order)
                     {
@@ -80,7 +75,7 @@ export class ExecutionHandler {
                 ]
             };
 
-            log.info(`Sending Final Corrected Batch Order to Kraken: ${JSON.stringify(batchOrderPayload, null, 2)}`);
+            log.info(`Sending Final, Most Elegant Batch Order to Kraken: ${JSON.stringify(batchOrderPayload, null, 2)}`);
 
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
