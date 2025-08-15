@@ -42,7 +42,7 @@ async function runTradingCycle() {
         const riskManager = new RiskManager({ leverage: 10,
     stopLossMultiplier: 2,
     takeProfitMultiplier: 3,
-    marginBuffer: 0.1 });
+    marginBuffer: 0.4 });
         const executionHandler = new ExecutionHandler(dataHandler.api);
 
         //TEST_RUN: START 
