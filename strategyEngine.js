@@ -41,7 +41,7 @@ export class StrategyEngine {
             - My Current Open Orders: ${JSON.stringify(orders.openOrders, null, 2) || "None"}
             - My 5 Most Recent Trades (Fills): ${recentFillsText}
 
-            **Latest Market Data (5-Minutes OHLC):**
+            **Latest Market Data (1-Hour OHLC):**
             The last candlestick shows:
             - Open: ${lastCandle.open}, High: ${lastCandle.high}, Low: ${lastCandle.low}, Close: ${lastCandle.close}
             - Volume: ${lastCandle.volume}
