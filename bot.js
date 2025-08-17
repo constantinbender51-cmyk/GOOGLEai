@@ -14,7 +14,7 @@ startWebServer();
 // --- Configuration ---
 const FUTURES_TRADING_PAIR = 'PF_XBTUSD';
 const OHLC_DATA_PAIR = 'XBTUSD';
-const CANDLE_INTERVAL = 40;
+const CANDLE_INTERVAL = 60;
 const MINIMUM_CONFIDENCE_THRESHOLD = 70;
 const TRADING_INTERVAL_MS = 3600 * 1000; // 1 hour
 
