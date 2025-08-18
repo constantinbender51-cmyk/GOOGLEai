@@ -34,7 +34,7 @@ async function fetchOHLC(pair, interval, since) {
 /**
  * Main function to paginate through the Kraken API and save all data.
  */
-async functionfetchAllHistoricalData() {
+async function fetchAllHistoricalData() {
     log.info(`Starting historical data download for ${PAIR}...`);
 
     let allCandles = [];
