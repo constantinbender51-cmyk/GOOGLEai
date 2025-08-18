@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node bot.js",
-    "fetch-data": "node fetch_data.js",
-    "backtest": "node backtest.js",
+    "_start-live-bot": "node bot.js",
+    "_fetch-data": "node fetch_data.js",
+    "_backtest": "node backtest.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Your Name",
