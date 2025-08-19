@@ -14,6 +14,7 @@ const DATA_FILE_PATH = './data/XBTUSD_60m_data.csv';
 const INITIAL_BALANCE = 10000;
 const MINIMUM_CONFIDENCE_THRESHOLD = 40;
 const MIN_SECONDS_BETWEEN_CALLS = 1;
+const MAX_API_CALLS = 10;
 // ... (imports)
 
 // --- Backtest Configuration ---
