@@ -41,14 +41,48 @@ export class BacktestRunner {
             }
 
             if (!this.executionHandler.getOpenTrade()) {
-                const signalFound = this._checkForSignal(marketData);
-                if (signalFound) {
-                    if (apiCallCount >= this.config.MAX_API_CALLS) {
-                        log.info(`[BACKTEST] Reached the API call limit. Ending simulation.`);
-                        break;
-                    }
-                    apiCallCount++;
-                    await this._handleSignal(marketData, currentCandle, apiCallCount);
+                // --- ASSEMBLE THE CHIMERA DATA PAYLOAD ---
+                // 1. Get 1h data
+                const ohlc_1h = allCandles.slice(i - this.config.DATA_WINDOW_SIZE, i);
+                
+                // 2. Get 15m data on-demand
+                const ohlc_15m = await this.dataHandler.fetchRecentData(
+                    'candles_15m',
+                    currentCandle.timestamp,
+                    48 * 60 * 60 // 48 hours in seconds
+                );
+
+                // 3. Mock the other data sources for now
+                const marketData = {
+                    current_utc_timestamp: new Date(currentCandle.timestamp * 1000).toISOString(),
+                    order_book_l2: { bids: [], asks: [] }, // Mocked
+                    ohlc_1h: ohlc_1h,
+                    ohlc_15m: ohlc_15m,
+                    funding_rates: [], // Mocked
+                    open_interest_delta: [], // Mocked
+                    social_sentiment: [], // Mocked
+                    spot_futures_basis: 0.0, // Mocked
+                    whale_wallet_flow: 0.0, // Mocked
+                    implied_volatility: {} // Mocked
+                };
+
+                // --- GET THE AI'S FULL TRADE PLAN ---
+                const tradePlan = await this.strategyEngine.generateSignal(marketData);
+
+                if (tradePlan.signal !== 'HOLD' && tradePlan.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD) {
+                    
+                    // --- The AI now gives us the full plan, we just need to execute it ---
+                    // We can add a sanity check here later
+                    
+                    this.executionHandler.placeOrder({
+                        signal: tradePlan.signal,
+                        entryPrice: tradePlan.entry_price,
+                        stopLoss: tradePlan.stop_loss_price,
+                        takeProfit: tradePlan.take_profit_price,
+                        reason: tradePlan.reason,
+                        // We'll need to calculate size separately
+                        size: 100 / tradePlan.entry_price // Placeholder size
+                    });
                 }
             }
         }
