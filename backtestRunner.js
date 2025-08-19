@@ -59,12 +59,14 @@ export class BacktestRunner {
                     currentCandle.timestamp,
                     48 * 60 * 60
                 );
-
+                const indicators_1h = calculateIndicatorSeries(ohlc_1h);
+                
                 const marketData = {
                     current_utc_timestamp: new Date(currentCandle.timestamp * 1000).toISOString(),
                     order_book_l2: { bids: [], asks: [] },
                     ohlc_1h: ohlc_1h,
                     ohlc_15m: ohlc_15m,
+                    indicators_1h: indicators_1h, // The calculated indicators
                     funding_rates: [],
                     open_interest_delta: [],
                     social_sentiment: [],
@@ -72,6 +74,7 @@ export class BacktestRunner {
                     whale_wallet_flow: 0.0,
                     implied_volatility: {}
                 };
+    
 
                 const tradePlan = await this.strategyEngine.generateSignal(marketData);
 
