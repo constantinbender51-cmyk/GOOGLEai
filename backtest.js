@@ -1,3 +1,6 @@
+// backtest.js
+
+// --- FIX: Added import statements ---
 import { BacktestRunner } from './backtestRunner.js';
 import { ensureDataFileExists } from './dataFetcher.js';
 import { log } from './logger.js';
