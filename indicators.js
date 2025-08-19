@@ -6,7 +6,7 @@ import { log } from './logger.js';
  * @param {Array<object>} ohlcData - An array of OHLCV candle objects.
  * @returns {object|null} An object containing the final, single-value indicators, or null if data is insufficient.
  */
-export function calculateChimeraIndicators(ohlcData) {
+export function calculateIndicatorSeries(ohlcData) {
     const requiredCandles = 200; // The longest period needed is the 200-EMA
     if (ohlcData.length < requiredCandles) {
         log.warn(`[INDICATORS] Insufficient data for Chimera calculation. Need ${requiredCandles}, have ${ohlcData.length}.`);
