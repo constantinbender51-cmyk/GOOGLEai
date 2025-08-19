@@ -141,24 +141,28 @@ export class BacktestRunner {
         return false; // No breakout, no signal
     }
     async _handleSignal(marketData, currentCandle, apiCallCount) {
-        log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing crossover event...`);
-        const loopStartTime = Date.now();
+        // ... (getting the tradePlan from the AI is the same)
         
-        const tradingSignal = await this.strategyEngine.generateSignal(marketData);
+        const tradePlan = await this.strategyEngine.generateSignal(marketData);
 
-        if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD) {
-            const tradeParams = this.riskManager.calculateTradeParameters({ ...marketData, balance: this.executionHandler.balance }, tradingSignal);
-            if (tradeParams && tradeParams.size > 0) {
+        if (tradePlan.signal !== 'HOLD' && tradePlan.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD) {
+            
+            // --- THIS IS THE FIX ---
+            // 1. Get the position size from our new RiskManager
+            const positionSize = this.riskManager.calculatePositionSize(this.executionHandler.balance, tradePlan);
+
+            // 2. If the size is valid, place the order
+            if (positionSize && positionSize > 0) {
                 this.executionHandler.placeOrder({
-                    signal: tradingSignal.signal,
-                    params: tradeParams,
-                    entryPrice: currentCandle.close,
-                    entryTime: currentCandle.timestamp,
-                    reason: tradingSignal.reason
+                    signal: tradePlan.signal,
+                    entryPrice: tradePlan.entry_price,
+                    stopLoss: tradePlan.stop_loss_price,
+                    takeProfit: tradePlan.take_profit_price,
+                    reason: tradePlan.reason,
+                    size: positionSize // Use the correctly calculated size
                 });
             }
         }
-
         const processingTimeMs = Date.now() - loopStartTime;
         const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
         if (delayNeededMs > 0) {
