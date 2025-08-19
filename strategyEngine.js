@@ -1,9 +1,11 @@
+// strategyEngine.js
+
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { log } from './logger.js'; // Using our logger
+import { log } from './logger.js';
 
 /**
  * @class StrategyEngine
- * @description Generates trading signals with confidence scores using the Gemini AI.
+ * @description Generates pure, market-based trading signals using the Gemini AI.
  */
 export class StrategyEngine {
     constructor() {
@@ -12,48 +14,41 @@ export class StrategyEngine {
             category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
             threshold: HarmBlockThreshold.BLOCK_NONE,
         }];
-        this.model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings });
-        log.info("StrategyEngine initialized with Gemini 2.5 Flash model.");
+        this.model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", safetySettings }); // Using 1.5 Flash for potentially better analysis
+        log.info("StrategyEngine initialized with Gemini 1.5 Flash model.");
     }
 
     /**
-     * Constructs a detailed prompt for the Gemini AI, requesting a nuanced output.
+     * Constructs a pure market analysis prompt for the Gemini AI.
      * @private
-     * @param {object} marketData - The consolidated data object from the DataHandler.
+     * @param {object} ohlcData - An array of OHLC candle objects.
      * @returns {string} A formatted prompt string.
      */
-    _createPrompt(marketData) {
-        const { ohlc, balance, positions, orders, fills } = marketData;
-        const lastCandle = ohlc[ohlc.length - 1];
-        const recentFillsText = fills.fills?.length > 0 
-            ? JSON.stringify(fills.fills.slice(0, 5), null, 2)
-            : "None";
+    _createPrompt(ohlcData) {
+        const lastCandle = ohlcData[ohlcData.length - 1];
 
-        // The prompt is re-engineered for a more sophisticated response.
+        // The prompt is now PURELY focused on market data analysis.
         return `
-            You are an expert trading analysis AI for the PF_XBTUSD (Bitcoin Futures) market. Your task is to analyze the provided market data and return a trading signal in a strict JSON format.
+            You are an expert trading analysis AI for the PF_XBTUSD (Bitcoin Futures) market. Your only task is to analyze the provided OHLC market data and return a trading signal in a strict JSON format. Do not consider any external factors like account balance or open positions.
 
             **Market Context:**
             - Asset: Bitcoin Futures (PF_XBTUSD)
-            - Current Time: ${new Date().toISOString()}
-            - My Current Tradable Balance (USD): $${balance}
-            - My Current Open Positions: ${JSON.stringify(positions.openPositions, null, 2) || "None"}
-            - My Current Open Orders: ${JSON.stringify(orders.openOrders, null, 2) || "None"}
-            - My 5 Most Recent Trades (Fills): ${recentFillsText}
+            - Current Time: ${new Date(lastCandle.timestamp * 1000).toISOString()}
 
             **Latest Market Data (1-Hour OHLC):**
-            The last candlestick shows:
-            - Open: ${lastCandle.open}, High: ${lastCandle.high}, Low: ${lastCandle.low}, Close: ${lastCandle.close}
+            You have been provided with a sequence of 1-hour OHLC candles. The most recent candlestick is:
+            - Open: ${lastCandle.open}
+            - High: ${lastCandle.high}
+            - Low: ${lastCandle.low}
+            - Close: ${lastCandle.close}
             - Volume: ${lastCandle.volume}
-            - Timestamp: ${lastCandle.date}
+            - Timestamp: ${new Date(lastCandle.timestamp * 1000).toISOString()}
 
             **Your Task:**
+            Based *only* on the provided OHLC data patterns, trends, and volume:
             1.  Decide on one of three actions: **LONG**, **SHORT**, or **HOLD**.
-            2.  Provide a **confidence score** for your decision, from 0 (no confidence) to 100 (absolute certainty). 
-                - A score of 75+ indicates a high-conviction trade setup.
-                - A score of 50-74 indicates a moderate setup.
-                - A score below 50 indicates low conviction, and you should likely recommend HOLD.
-            3.  Provide a brief, one-sentence **rationale** for your decision.
+            2.  Provide a **confidence score** for your decision, from 0 (no confidence) to 100 (absolute certainty).
+            3.  Provide a brief, one-sentence **rationale** for your decision based on technical analysis.
 
             **Output Format (Strict JSON only):**
             Return ONLY a JSON object with three keys: "signal", "confidence", and "reason".
@@ -68,18 +63,19 @@ export class StrategyEngine {
     }
 
     /**
-     * Analyzes market data and generates a trading signal with confidence.
-     * @param {object} marketData - The consolidated data from the DataHandler.
+     * Analyzes market data and generates a trading signal.
+     * @param {object} marketData - The consolidated data. We only use the 'ohlc' part.
      * @returns {Promise<object>} A promise that resolves to { signal, confidence, reason }.
      */
     async generateSignal(marketData) {
         if (!marketData?.ohlc?.length) {
-            log.warn("StrategyEngine: Invalid or empty market data provided.");
+            log.warn("StrategyEngine: Invalid or empty OHLC data provided.");
             return { signal: 'HOLD', confidence: 0, reason: 'Insufficient market data for analysis.' };
         }
 
-        const prompt = this._createPrompt(marketData);
-        log.info("Generating signal with confidence score from Gemini...");
+        // We only pass the OHLC data to the prompt creator.
+        const prompt = this._createPrompt(marketData.ohlc);
+        log.info("Generating pure market signal with confidence score from Gemini...");
 
         try {
             const result = await this.model.generateContent(prompt);
@@ -87,7 +83,6 @@ export class StrategyEngine {
             const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
             const signalData = JSON.parse(cleanedText);
 
-            // Validate the more complex response
             if (!['LONG', 'SHORT', 'HOLD'].includes(signalData.signal) || typeof signalData.confidence !== 'number') {
                 throw new Error(`Invalid or malformed response from AI: ${JSON.stringify(signalData)}`);
             }
