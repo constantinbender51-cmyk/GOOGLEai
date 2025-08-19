@@ -1,7 +1,7 @@
 // backtestDataHandler.js
 
 import db from './db/client.js'; // Import our database client
-import { log } from '../logger.js';
+import { log } from './logger.js';
 
 export class BacktestDataHandler {
     constructor() {
