@@ -36,7 +36,7 @@ export class StrategyEngine {
             1.  **"signal"**: Based on your composite score, determine the action. If score ≥ 0.3, use "LONG". If score ≤ -0.3, use "SHORT". Otherwise, use "HOLD".
             2.  **"confidence"**: Convert your composite score to a confidence value from 0 to 100 (e.g., a score of 0.42 becomes 42).
             3.  **"stop_loss_distance_in_usd"**: If the signal is LONG or SHORT, provide a logical stop-loss distance in USD based on your internal ATR analysis. If the signal is HOLD, this must be 0.
-            4.  **"reason"**: Provide a brief, one-sentence rationale for your decision, mentioning the composite score.
+            4.  **"reason"**: Provide a detailed, step-by-step explanation of how you arrived at your decision, including the key factors from the context that influenced each component of the composite score and how they ultimately led to the final signal.
 
             **Output Format (Strict JSON only, no extra text or explanations):**
             Return ONLY a JSON object with the four keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
