@@ -1,51 +1,25 @@
 // fetch_data.js
 
-import axios from 'axios';
 import fs from 'fs';
 import { Parser } from 'json2csv';
 import { log } from './logger.js';
+import { KrakenFuturesApi } from './krakenApi.js'; // Import our existing API class
 
 // --- Configuration ---
-const PAIR = 'XBTUSD';
+const PAIR = 'XBTUSD'; // The fetchKrakenData function handles the correct API pair name internally
 const INTERVAL = 60; // 1-hour candles
 const OUTPUT_FILE = `./data/${PAIR}_${INTERVAL}m_data.csv`;
 const START_DATE = '2022-01-01T00:00:00Z';
 
 /**
- * Fetches a batch of OHLC data from Kraken.
- * @param {string} pair - The trading pair.
- * @param {number} interval - The candle interval in minutes.
- * @param {number} since - The timestamp to start fetching from (in seconds).
- * @returns {Promise<object|null>} The API response data or null on failure.
- */
-async function fetchOHLC(pair, interval, since) {
-    const url = `https://api.kraken.com/0/public/OHLC`;
-    const params = { pair, interval };
-    if (since) {
-        params.since = since;
-    }
-    try {
-        const response = await axios.get(url, { params });
-        if (response.data.error && response.data.error.length > 0) {
-            throw new Error(response.data.error.join(', '));
-        }
-        // Log the raw result for debugging
-        if (!response.data.result || !response.data.result[pair]) {
-            log.warn("API returned unexpected result structure.", response.data);
-            return null;
-        }
-        return response.data.result;
-    } catch (error) {
-        log.error(`Failed to fetch OHLC data for since=${since}`, error);
-        throw error;
-    }
-}
-
-/**
  * Main function to paginate through the Kraken API and save all data.
  */
-async function fetchAllHistoricalData() { // <-- Typo fixed here
+async function fetchAllHistoricalData() {
     log.info(`Starting historical data download for ${PAIR}...`);
+
+    // We don't need real keys for the public data endpoint, but we need to instantiate the class
+    // to access the method. We can pass dummy values.
+    const api = new KrakenFuturesApi('dummy_key', 'dummy_secret');
 
     let allCandles = [];
     let lastTimestamp = new Date(START_DATE).getTime() / 1000;
@@ -53,32 +27,24 @@ async function fetchAllHistoricalData() { // <-- Typo fixed here
     while (true) {
         log.info(`Fetching data since ${new Date(lastTimestamp * 1000).toISOString()}`);
         
-        const result = await fetchOHLC(PAIR, INTERVAL, lastTimestamp);
+        // --- USE THE PROVEN, WORKING FUNCTION ---
+        const formattedCandles = await api.fetchKrakenData({
+            pair: PAIR,
+            interval: INTERVAL,
+            since: lastTimestamp
+        });
 
-        // Check for an empty or invalid result
-        if (!result || !result[PAIR] || result[PAIR].length === 0) {
+        if (!formattedCandles || formattedCandles.length === 0) {
             log.info("No more data returned. Ending fetch.");
             break;
         }
 
-        const candles = result[PAIR];
-        
-        // Format the data into a more readable format
-        const formattedCandles = candles.map(c => ({
-            timestamp: parseInt(c[0]),
-            open: parseFloat(c[1]),
-            high: parseFloat(c[2]),
-            low: parseFloat(c[3]),
-            close: parseFloat(c[4]),
-            volume: parseFloat(c[6])
-        }));
-
+        // The data is already formatted, so we just add it to our array
         allCandles.push(...formattedCandles);
 
-        // --- RELIABLE PAGINATION LOGIC ---
-        // The next 'since' should be the timestamp of the last candle we received.
-        // This prevents issues with the API's 'last' value.
-        const newLastTimestamp = formattedCandles[formattedCandles.length - 1].timestamp;
+        // Get the timestamp of the last candle we received to use for the next 'since' parameter
+        // We need to convert the ISO date string back to a Unix timestamp in seconds
+        const newLastTimestamp = new Date(formattedCandles[formattedCandles.length - 1].date).getTime() / 1000;
 
         // If the timestamp hasn't advanced, we're stuck in a loop.
         if (newLastTimestamp === lastTimestamp) {
@@ -99,8 +65,18 @@ async function fetchAllHistoricalData() { // <-- Typo fixed here
         if (!fs.existsSync('./data')) {
             fs.mkdirSync('./data');
         }
+        // The field 'date' needs to be renamed to 'timestamp' for consistency with our backtester plan
+        const candlesForCsv = allCandles.map(c => ({
+            timestamp: new Date(c.date).getTime() / 1000,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            volume: c.volume
+        }));
+
         const json2csvParser = new Parser();
-        const csv = json2csvParser.parse(allCandles);
+        const csv = json2csvParser.parse(candlesForCsv);
         fs.writeFileSync(OUTPUT_FILE, csv);
         log.info(`Data successfully saved to ${OUTPUT_FILE}`);
     }
