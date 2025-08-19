@@ -141,17 +141,25 @@ export class BacktestRunner {
         return false; // No breakout, no signal
     }
     async _handleSignal(marketData, currentCandle, apiCallCount) {
-        // ... (getting the tradePlan from the AI is the same)
+        log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing event...`);
+        const loopStartTime = Date.now();
         
         const tradePlan = await this.strategyEngine.generateSignal(marketData);
 
-        if (tradePlan.signal !== 'HOLD' && tradePlan.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD) {
-            
-            // --- THIS IS THE FIX ---
-            // 1. Get the position size from our new RiskManager
+        // --- THIS IS THE FIX ---
+        // We must validate the entire tradePlan object before using it.
+        // The AI might return a minimal object on failure.
+        if (
+            tradePlan &&
+            tradePlan.signal &&
+            tradePlan.signal !== 'HOLD' &&
+            trade.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD &&
+            tradePlan.entry_price && // Check for all required fields
+            tradePlan.stop_loss_price &&
+            tradePlan.take_profit_price
+        ) {
             const positionSize = this.riskManager.calculatePositionSize(this.executionHandler.balance, tradePlan);
 
-            // 2. If the size is valid, place the order
             if (positionSize && positionSize > 0) {
                 this.executionHandler.placeOrder({
                     signal: tradePlan.signal,
@@ -159,17 +167,20 @@ export class BacktestRunner {
                     stopLoss: tradePlan.stop_loss_price,
                     takeProfit: tradePlan.take_profit_price,
                     reason: tradePlan.reason,
-                    size: positionSize // Use the correctly calculated size
+                    size: positionSize
                 });
             }
+        } else {
+            // This block now handles cases where the AI returned HOLD or an incomplete object.
+            log.info(`[BACKTEST] AI returned HOLD or an invalid trade plan. No action taken.`);
         }
+
         const processingTimeMs = Date.now() - loopStartTime;
         const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
         if (delayNeededMs > 0) {
             await new Promise(resolve => setTimeout(resolve, delayNeededMs));
         }
     }
-
     _printSummary(apiCallCount) {
         // ... (This function is correct and unchanged)
     }
