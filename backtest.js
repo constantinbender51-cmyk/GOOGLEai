@@ -189,7 +189,6 @@ async function runBacktest() {
             }
         }
     }
-    const finalBalance = simulatedAccount.balance;
     // --- Final Results (Unaltered) ---
     log.info('--- BACKTEST COMPLETE ---');
     const allTrades = executionHandler.getTrades();
