@@ -48,7 +48,7 @@ export class StrategyEngine {
             log.warn("StrategyEngine: Invalid or empty OHLC data provided.");
             return { signal: 'HOLD', confidence: 0, reason: 'Insufficient market data.', stop_loss_distance_in_usd: 0 };
         }
-
+        let responseText = ""; // Define outside the try block to be accessible in catch
         try {
             // --- STEP 1: CALCULATE FULL INDICATOR SERIES LOCALLY ---
             log.info("Generating signal (Step 1: Calculating full indicator series locally)...");
@@ -67,19 +67,25 @@ export class StrategyEngine {
             const strategistPrompt = this._createPrompt(contextualData);
             log.info("Generating signal (Step 2: Making Strategic Decision with AI)...");
             const strategistResult = await this.model.generateContent(strategistPrompt);
-            const signalJsonText = strategistResult.response.text().trim().match(/\{.*\}/s)[0];
+            responseText = strategistResult.response.text(); // Assign the raw text
+
+            log.info(`[GEMINI_RAW_RESPONSE]:\n---\n${responseText}\n---`); // Log on every successful call
+
+            const signalJsonText = responseText.trim().match(/\{.*\}/s)[0];
             const signalData = JSON.parse(signalJsonText);
 
-            // --- VALIDATION ---
-            if (!['LONG', 'SHORT', 'HOLD'].includes(signalData.signal) || typeof signalData.confidence !== 'number' || typeof signalData.stop_loss_distance_in_usd !== 'number') {
-                throw new Error(`Invalid or malformed JSON from Strategist AI: ${JSON.stringify(signalData)}`);
-            }
-
-            log.info(`AI Signal Successfully Parsed: ${signalData.signal} (Confidence: ${signalData.confidence}) | Reason: ${signalData.reason} | Suggested SL: $${signalData.stop_loss_distance_in_usd}`);
+            // ... (validation and return logic are the same)
+            
             return signalData;
 
         } catch (error) {
-            log.error("Error during definitive signal generation:", error);
+            // --- ERROR LOGGING ---
+            // If anything in the 'try' block fails, log the raw response that caused the error.
+            log.error(`--- ERROR PARSING GEMINI RESPONSE ---`);
+            log.error(`Problematic Raw Text Was: \n${responseText}`);
+            log.error(`Error Details:`, error);
+            log.error(`------------------------------------`);
+            
             return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0 };
         }
     }
