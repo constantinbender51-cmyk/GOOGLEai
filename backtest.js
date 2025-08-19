@@ -93,55 +93,59 @@ async function runBacktest() {
     await ensureDataFileExists();
 
     const dataHandler = new BacktestDataHandler(DATA_FILE_PATH);
-    const allCandles = dataHandler.getAllCandles(); // Load all data into memory once
-
-    if (!allCandles || allCandles.length < WARMUP_PERIOD) {
-        log.error(`[BACKTEST] Not enough candle data to run. Need at least ${WARMUP_PERIOD}.`);
-        return;
-    }
-
     const executionHandler = new BacktestExecutionHandler();
     const strategyEngine = new StrategyEngine();
     const riskManager = new RiskManager({ leverage: 10, marginBuffer: 0.01 });
 
     let simulatedAccount = { balance: INITIAL_BALANCE };
     let apiCallCount = 0;
-    let openPosition = null; // Manage the open position here
 
-    log.info(`[BACKTEST] Starting simulation with ${allCandles.length} candles. Warm-up period is ${WARMUP_PERIOD} candles.`);
+    // --- WARM-UP LOOP ---
+    log.info(`[BACKTEST] Warming up indicators with ${WARMUP_PERIOD} candles...`);
+    for (let i = 0; i < WARMUP_PERIOD; i++) {
+        const hasData = dataHandler.fetchAllData();
+        if (!hasData) {
+            throw new Error("Not enough data for the warm-up period. Get a larger dataset.");
+        }
+    }
+    log.info('[BACKTEST] Warm-up complete. Starting simulation.');
 
-    // --- THE FIX: A SINGLE, UNIFIED FOR LOOP ---
-    // We start the loop AFTER the warm-up period.
-    for (let i = WARMUP_PERIOD; i < allCandles.length; i++) {
+
+    // --- MAIN SIMULATION LOOP ---
+    while (true) {
+        const marketData = dataHandler.fetchAllData();
+        if (!marketData) {
+            log.info('[BACKTEST] End of historical data reached.');
+            break;
+        }
         
-        // On each iteration, we get the current candle and the 720 candles before it.
-        const currentCandle = allCandles[i];
-        const marketData = {
-            ohlc: allCandles.slice(i - DATA_WINDOW_SIZE, i)
-        };
+        const currentCandle = marketData.ohlc[marketData.ohlc.length - 1];
+        const openTrade = executionHandler.getOpenTrade();
 
-        // --- Trade Closing Logic ---
-        if (openPosition) {
+        // --- Trade Closing Logic (Unaltered) ---
+        if (openTrade) {
             let exitPrice = null;
             let exitReason = '';
-            if (openPosition.signal === 'LONG') {
-                if (currentCandle.low <= openPosition.stopLoss) { exitPrice = openPosition.stopLoss; exitReason = 'Stop-Loss'; }
-                else if (currentCandle.high >= openPosition.takeProfit) { exitPrice = openPosition.takeProfit; exitReason = 'Take-Profit'; }
-            } else if (openPosition.signal === 'SHORT') {
-                if (currentCandle.high >= openPosition.stopLoss) { exitPrice = openPosition.stopLoss; exitReason = 'Stop-Loss'; }
+            if (openTrade.signal === 'LONG') {
+                if (currentCandle.low <= openTrade.stopLoss) { exitPrice = openTrade.stopLoss; exitReason = 'Stop-Loss'; }
+                else if (currentCandle.high >= openTrade.takeProfit) { exitPrice = openTrade.takeProfit; exitReason = 'Take-Profit'; }
+            } else if (openTrade.signal === 'SHORT') {
+                if (currentCandle.high >= openTrade.stopLoss) { exitPrice = openTrade.stopLoss; exitReason = 'Stop-Loss'; }
                 else if (currentCandle.low <= openTrade.takeProfit) { exitPrice = openTrade.takeProfit; exitReason = 'Take-Profit'; }
             }
             if (exitPrice) {
-                const pnl = (exitPrice - openPosition.entryPrice) * openPosition.size * (openPosition.signal === 'LONG' ? 1 : -1);
+                const pnl = (exitPrice - openTrade.entryPrice) * openTrade.size * (openTrade.signal === 'LONG' ? 1 : -1);
                 simulatedAccount.balance += pnl;
+                openTrade.status = 'closed'; openTrade.exitPrice = exitPrice; openTrade.exitTime = currentCandle.timestamp; openTrade.pnl = pnl;
                 log.info(`[BACKTEST] ---- TRADE CLOSED via ${exitReason} ----`);
                 log.info(`[BACKTEST] Exit: ${exitPrice} | P&L: $${pnl.toFixed(2)} | New Balance: $${simulatedAccount.balance.toFixed(2)}`);
-                openPosition = null; // The trade is now closed
             }
         }
 
-        // --- Trade Opening Logic ---
-        if (!openPosition) {
+        // --- Trade Opening Logic (with MA Filter) ---
+        if (!executionHandler.getOpenTrade()) {
+            
+            // --- MOVING AVERAGE CROSSOVER PRE-FILTER ---
             const closePrices = marketData.ohlc.map(c => c.close);
             const fastEMA = EMA.calculate({ period: 12, values: closePrices });
             const slowEMA = EMA.calculate({ period: 26, values: closePrices });
@@ -155,7 +159,7 @@ async function runBacktest() {
             const isBearishCrossover = prevFast >= prevSlow && lastFast < lastSlow;
 
             if (isBullishCrossover || isBearishCrossover) {
-                log.info(`[FILTER] Potential signal found at candle ${i}: ${isBullishCrossover ? 'Bullish' : 'Bearish'} Crossover.`);
+                log.info(`[FILTER] Potential signal found: ${isBullishCrossover ? 'Bullish' : 'Bearish'} Crossover.`);
 
                 if (apiCallCount >= MAX_API_CALLS) {
                     log.info(`[BACKTEST] Reached the API call limit. Ending simulation.`);
@@ -166,13 +170,11 @@ async function runBacktest() {
                 apiCallCount++;
                 log.info(`[BACKTEST] [Call #${apiCallCount}/${MAX_API_CALLS}] Analyzing crossover event...`);
                 
-                // Pass the correct marketData slice to the engine
                 const tradingSignal = await strategyEngine.generateSignal(marketData);
 
                 if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
                     const tradeParams = riskManager.calculateTradeParameters({ ...marketData, balance: simulatedAccount.balance }, tradingSignal);
                     if (tradeParams && tradeParams.size > 0) {
-                        // The execution handler just logs the trade, it doesn't hold the state
                         executionHandler.placeOrder({
                             signal: tradingSignal.signal,
                             params: tradeParams,
@@ -180,8 +182,6 @@ async function runBacktest() {
                             entryTime: currentCandle.timestamp,
                             reason: tradingSignal.reason
                         });
-                        // We set our local openPosition variable to the newly opened trade
-                        openPosition = executionHandler.getOpenTrade(); 
                     }
                 }
 
@@ -193,7 +193,7 @@ async function runBacktest() {
                 }
             }
         }
-    }    // --- Final Results (Unaltered) ---
+    }
     log.info('--- BACKTEST COMPLETE ---');
     const allTrades = executionHandler.getTrades();
     const totalTrades = allTrades.length;
