@@ -5,9 +5,7 @@ import axios from 'axios';
 import { Parser as Json2CsvParser } from 'json2csv';
 import { log } from './logger.js';
 
-const BINANCE_PAIR = 'BTCUSDT';
-const INTERVAL = '1h';
-const START_DATE = '2022-01-01T00:00:00Z';
+const START_DATE = '2022-01-01T00:00:00Z'; // A deep history for backtesting
 const BATCH_SIZE = 1000;
 
 async function fetchBinanceOHLC(symbol, interval, startTime, limit) {
@@ -24,35 +22,40 @@ async function fetchBinanceOHLC(symbol, interval, startTime, limit) {
             volume: parseFloat(kline[5]),
         }));
     } catch (error) {
-        log.error(`Failed to fetch Binance OHLC data. ${error.message}`);
+        log.error(`Failed to fetch Binance OHLC data for ${symbol} ${interval}. ${error.message}`);
         throw error;
     }
 }
 
-// --- FIX: Added export statement ---
-export async function ensureDataFileExists(filePath) {
+// This function is now generalized and exported
+export async function downloadAndSaveData({ pair, interval, filePath }) {
     if (fs.existsSync(filePath)) {
-        log.info(`[DATA] Data file already exists at ${filePath}. Skipping download.`);
+        log.info(`[DATA] Data file already exists for ${pair} ${interval} at ${filePath}. Skipping download.`);
         return;
     }
-    log.info(`[DATA] Data file not found. Starting download from Binance...`);
+
+    log.info(`[DATA] Data file not found for ${pair} ${interval}. Starting download from Binance...`);
+    
     let allCandles = [];
     let startTime = new Date(START_DATE).getTime();
     const endTime = Date.now();
+
     while (startTime < endTime) {
-        log.info(`[DATA] Fetching data from ${new Date(startTime).toISOString()}...`);
+        log.info(`[DATA] Fetching ${pair} ${interval} data from ${new Date(startTime).toISOString()}...`);
         try {
-            const candles = await fetchBinanceOHLC(BINANCE_PAIR, INTERVAL, startTime, BATCH_SIZE);
+            const candles = await fetchBinanceOHLC(pair, interval, startTime, BATCH_SIZE);
             if (candles.length === 0) break;
             allCandles.push(...candles);
             startTime = candles[candles.length - 1].timestamp * 1000 + 1;
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 500)); // Be respectful of API limits
         } catch (error) {
-            log.error("[DATA] Stopping fetch loop due to an error.");
+            log.error(`[DATA] Stopping fetch loop for ${pair} ${interval} due to an error.`);
             break;
         }
     }
-    log.info(`[DATA] Download complete. Total candles fetched: ${allCandles.length}.`);
+
+    log.info(`[DATA] Download complete for ${pair} ${interval}. Total candles fetched: ${allCandles.length}.`);
+
     if (allCandles.length > 0) {
         const uniqueCandles = Array.from(new Map(allCandles.map(c => [c.timestamp, c])).values());
         if (!fs.existsSync('./data')) {
@@ -63,6 +66,6 @@ export async function ensureDataFileExists(filePath) {
         fs.writeFileSync(filePath, csv);
         log.info(`[DATA] Data successfully saved to ${filePath}`);
     } else {
-        throw new Error("Failed to download any historical data. Cannot proceed with backtest.");
+        throw new Error(`Failed to download any historical data for ${pair} ${interval}.`);
     }
 }
