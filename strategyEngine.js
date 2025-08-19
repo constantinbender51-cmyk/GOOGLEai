@@ -75,6 +75,9 @@ export class StrategyEngine {
             // We create one single prompt and use the reliable generateContent method.
             const fullPrompt = this._createFullPrompt(marketData);
 
+            // --- THIS IS THE FIX ---
+            // Let's print the exact prompt we are about to send.
+            log.info(`--- FINAL PROMPT SENT TO GEMINI ---\n${fullPrompt}\n------------------------------------`);
             log.info("Generating Chimera signal using generateContent...");
             strategistResult = await this.model.generateContent(fullPrompt);
             
