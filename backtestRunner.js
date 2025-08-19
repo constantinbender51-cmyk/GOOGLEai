@@ -21,7 +21,6 @@ export class BacktestRunner {
     async run() {
         log.info('--- STARTING NEW DATABASE-POWERED BACKTEST ---');
         
-        // --- THE KEY CHANGE: Await the data loading ---
         await this.dataHandler.load();
 
         const allCandles = this.dataHandler.getAllCandles();
@@ -33,56 +32,70 @@ export class BacktestRunner {
 
         for (let i = this.config.WARMUP_PERIOD; i < allCandles.length; i++) {
             const currentCandle = allCandles[i];
-            const marketData = { ohlc: allCandles.slice(i - this.config.DATA_WINDOW_SIZE, i) };
-
+            
             const openTrade = this.executionHandler.getOpenTrade();
             if (openTrade) {
                 this._checkTradeExit(currentCandle, openTrade);
             }
 
             if (!this.executionHandler.getOpenTrade()) {
-                // --- ASSEMBLE THE CHIMERA DATA PAYLOAD ---
-                // 1. Get 1h data
-                const ohlc_1h = allCandles.slice(i - this.config.DATA_WINDOW_SIZE, i);
                 
-                // 2. Get 15m data on-demand
+                // --- FIX: We are re-adding the rate limiting logic from our previous working version ---
+                const loopStartTime = Date.now();
+
+                if (apiCallCount >= this.config.MAX_API_CALLS) {
+                    log.info(`[BACKTEST] Reached the API call limit of ${this.config.MAX_API_CALLS}. Ending simulation.`);
+                    break;
+                }
+                apiCallCount++;
+                log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing candle...`);
+                // --- END FIX ---
+
+                // --- ASSEMBLE THE CHIMERA DATA PAYLOAD ---
+                const ohlc_1h = allCandles.slice(i - this.config.DATA_WINDOW_SIZE, i);
                 const ohlc_15m = await this.dataHandler.fetchRecentData(
                     'candles_15m',
                     currentCandle.timestamp,
-                    48 * 60 * 60 // 48 hours in seconds
+                    48 * 60 * 60
                 );
 
-                // 3. Mock the other data sources for now
                 const marketData = {
                     current_utc_timestamp: new Date(currentCandle.timestamp * 1000).toISOString(),
-                    order_book_l2: { bids: [], asks: [] }, // Mocked
+                    order_book_l2: { bids: [], asks: [] },
                     ohlc_1h: ohlc_1h,
                     ohlc_15m: ohlc_15m,
-                    funding_rates: [], // Mocked
-                    open_interest_delta: [], // Mocked
-                    social_sentiment: [], // Mocked
-                    spot_futures_basis: 0.0, // Mocked
-                    whale_wallet_flow: 0.0, // Mocked
-                    implied_volatility: {} // Mocked
+                    funding_rates: [],
+                    open_interest_delta: [],
+                    social_sentiment: [],
+                    spot_futures_basis: 0.0,
+                    whale_wallet_flow: 0.0,
+                    implied_volatility: {}
                 };
 
-                // --- GET THE AI'S FULL TRADE PLAN ---
                 const tradePlan = await this.strategyEngine.generateSignal(marketData);
 
                 if (tradePlan.signal !== 'HOLD' && tradePlan.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD) {
-                    
-                    // --- The AI now gives us the full plan, we just need to execute it ---
-                    // We can add a sanity check here later
-                    
-                    this.executionHandler.placeOrder({
-                        signal: tradePlan.signal,
-                        entryPrice: tradePlan.entry_price,
-                        stopLoss: tradePlan.stop_loss_price,
-                        takeProfit: tradePlan.take_profit_price,
-                        reason: tradePlan.reason,
-                        // We'll need to calculate size separately
-                        size: 100 / tradePlan.entry_price // Placeholder size
-                    });
+                    // This part needs the risk manager to calculate size correctly
+                    const positionSize = this.riskManager.calculatePositionSize(this.executionHandler.balance, tradePlan);
+                    if (positionSize && positionSize > 0) {
+                        this.executionHandler.placeOrder({
+                            signal: tradePlan.signal,
+                            entryPrice: tradePlan.entry_price,
+                            stopLoss: tradePlan.stop_loss_price,
+                            takeProfit: tradePlan.take_profit_price,
+                            reason: tradePlan.reason,
+                            size: positionSize
+                        });
+                    }
+                }
+
+                // --- FIX: We are re-adding the wait/delay logic ---
+                const loopEndTime = Date.now();
+                const processingTimeMs = loopEndTime - loopStartTime;
+                const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
+                if (delayNeededMs > 0) {
+                    log.info(`[RATE_LIMIT] Waiting for ${delayNeededMs.toFixed(0)}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delayNeededMs));
                 }
             }
         }
