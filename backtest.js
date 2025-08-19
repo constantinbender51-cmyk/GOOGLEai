@@ -14,6 +14,7 @@ const DATA_FILE_PATH = './data/XBTUSD_60m_data.csv';
 const INITIAL_BALANCE = 10000;
 const MINIMUM_CONFIDENCE_THRESHOLD = 70;
 const MIN_SECONDS_BETWEEN_CALLS = 100;
+const WARMUP_PERIOD = 100; // Number of candles to "warm up" indicators before starting.
 
 // ==================================================================================
 // SECTION 1: DATA FETCHING LOGIC (copied from fetch_data.js)
@@ -91,11 +92,8 @@ async function ensureDataFileExists() {
 // ==================================================================================
 
 async function runBacktest() {
-    // STEP 0: Ensure data exists before doing anything else.
-    await ensureDataFileExists();
-
-    log.info('--- STARTING NEW BACKTEST (Real-Time Simulation) ---');
-    log.info(`Rate limit set to 1 AI call per ${MIN_SECONDS_BETWEEN_CALLS} seconds.`);
+    log.info('--- STARTING NEW BACKTEST ---');
+    await ensureDataFileExists(); // This function is defined further down
 
     const dataHandler = new BacktestDataHandler(DATA_FILE_PATH);
     const executionHandler = new BacktestExecutionHandler();
@@ -105,6 +103,18 @@ async function runBacktest() {
     let simulatedAccount = { balance: INITIAL_BALANCE };
     let apiCallCount = 0;
 
+    // --- WARM-UP LOOP ---
+    log.info(`[BACKTEST] Warming up indicators with ${WARMUP_PERIOD} candles...`);
+    for (let i = 0; i < WARMUP_PERIOD; i++) {
+        const hasData = dataHandler.fetchAllData();
+        if (!hasData) {
+            throw new Error("Not enough data for the warm-up period. Get a larger dataset.");
+        }
+    }
+    log.info('[BACKTEST] Warm-up complete. Starting simulation.');
+
+
+    // --- MAIN SIMULATION LOOP ---
     while (true) {
         const loopStartTime = Date.now();
         const marketData = dataHandler.fetchAllData();
