@@ -11,37 +11,40 @@ export class StrategyEngine {
             threshold: HarmBlockThreshold.BLOCK_NONE,
         }];
         this.model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings });
-        log.info("StrategyEngine initialized with Quantitative Strategist prompt (with Stop-Loss).");
+        log.info("StrategyEngine initialized with Hybrid Quantitative Prompt.");
     }
 
     _createPrompt(ohlcData) {
-        const lastPrice = ohlcData[ohlcData.length - 1].close;
-        const ohlcv = ohlcData.map(c => [c.open, c.high, c.low, c.close, c.volume]);
-        const pair = "BTCUSDT";
+        const lastCandle = ohlcData[ohlcData.length - 1];
+        const candleTimestamp = lastCandle.timestamp ? new Date(lastCandle.timestamp * 1000) : new Date(lastCandle.date);
 
         return `
-            You are an expert quantitative strategist.
-            Your ONLY job is to produce a single JSON object that tells me whether to BUY, SELL, or HOLD right now, based strictly on the most recent 720 candles.
+            You are an expert quantitative strategist for the PF_XBTUSD (Bitcoin Futures) market.
+            Your ONLY job is to produce a single JSON object based on the provided market data and a strict set of internal rules.
 
-            Input you will always receive:
-            ohlcv: a list of the last 720 [open, high, low, close, volume] values.
-            pair: the symbol being analysed.
-            timeframe: “1h” (fixed)
+            **Internal Analysis Rules (Perform these calculations internally):**
+            1.  Analyze the last 720 1-hour OHLC candles.
+            2.  Calculate a composite score from -1 (strong bearish) to +1 (strong bullish) by synthesizing at least the following indicators:
+                • 50-EMA and 200-EMA crossover status.
+                • RSI(14) current value and its 3-candle slope.
+                • MACD(12,26,9) histogram direction.
+                • A custom volume-weighted price change indicator for recent buying/selling pressure.
+            3.  Use a 20-period ATR to assess current volatility.
 
-            Rules you must follow:
-            1. Perform all calculations internally.
-            2. Use at least the following indicators: 50/200-EMA crossover, RSI(14) value and slope, MACD(12,26,9) histogram, 20-period ATR, and a custom volume-weighted price change indicator.
-            3. Combine the above into a composite score ∈ [-1, +1].
-            4. Map the score to an action: score ≥ 0.3 → BUY, score ≤ ‑0.3 → SELL, otherwise → HOLD.
-            5. **If the action is BUY or SELL, suggest a logical stop_loss_distance_in_usd based on your internal ATR calculation and the current market volatility. This value should be a positive number. If the action is HOLD, this value must be 0.**
-            6. Output only the following JSON on a single line, with no extra text, explanation, or markdown:
-               {"pair":"","action":"<BUY|SELL|HOLD>","score":,"stop_loss_distance_in_usd":}
+            **Your Task (Produce the final JSON based on your internal analysis):**
+            1.  **"signal"**: Based on your composite score, determine the action. If score ≥ 0.3, use "LONG". If score ≤ -0.3, use "SHORT". Otherwise, use "HOLD".
+            2.  **"confidence"**: Convert your composite score to a confidence value from 0 to 100. (e.g., a score of 0.42 becomes a confidence of 42, a score of -0.5 becomes 50).
+            3.  **"stop_loss_distance_in_usd"**: If the signal is LONG or SHORT, provide a logical stop-loss distance in USD based on your internal ATR calculation. If the signal is HOLD, this must be 0.
+            4.  **"reason"**: Provide a brief, one-sentence rationale for your decision, mentioning the composite score.
 
-            Example output for a BUY action with a current price of $65,000:
-            {"pair":"BTCUSDT","action":"BUY","score":0.42,"stop_loss_distance_in_usd":850}
+            **Output Format (Strict JSON only, no extra text or explanations):**
+            Return ONLY a JSON object with the four keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
 
-            Example output for a HOLD action:
-            {"pair":"BTCUSDT","action":"HOLD","score":0.15,"stop_loss_distance_in_usd":0}
+            Example for a LONG signal:
+            {"signal":"LONG","confidence":42,"reason":"Composite score of 0.42 indicates a bullish setup.","stop_loss_distance_in_usd":850}
+
+            Example for a HOLD signal:
+            {"signal":"HOLD","confidence":15,"reason":"Composite score of 0.15 is not strong enough to signal a trade.","stop_loss_distance_in_usd":0}
         `;
     }
 
@@ -52,40 +55,34 @@ export class StrategyEngine {
         }
 
         const prompt = this._createPrompt(marketData.ohlc);
-        log.info("Generating signal with new Quantitative Strategist prompt...");
+        log.info("Generating signal with Hybrid Quantitative prompt...");
 
         try {
             const result = await this.model.generateContent(prompt);
             const responseText = result.response.text();
-            const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-            log.info(`[GEMINI_RAW_RESPONSE] Raw text from AI: \n---\n${cleanedText}\n---`);
-            const signalData = JSON.parse(cleanedText);
+            
+            log.info(`[GEMINI_RAW_RESPONSE] Raw text from AI: \n---\n${responseText}\n---`);
 
-            // --- ADAPTATION LOGIC ---
-            let internalSignal = 'HOLD';
-            if (signalData.action === 'BUY') {
-                internalSignal = 'LONG';
-            } else if (signalData.action === 'SELL') {
-                internalSignal = 'SHORT';
+            // Use the robust regex parser to find the JSON object
+            const jsonMatch = responseText.match(/\{.*\}/s);
+            if (!jsonMatch) {
+                throw new Error("No valid JSON object found in the AI's response.");
+            }
+            const jsonText = jsonMatch[0];
+            const signalData = JSON.parse(jsonText);
+
+            // --- NO ADAPTATION NEEDED ---
+            // The AI's output is now in the exact format our bot requires.
+            // We just need to validate it.
+            if (!['LONG', 'SHORT', 'HOLD'].includes(signalData.signal) || typeof signalData.confidence !== 'number' || typeof signalData.stop_loss_distance_in_usd !== 'number') {
+                throw new Error(`Invalid or malformed response from AI: ${JSON.stringify(signalData)}`);
             }
 
-            const confidence = Math.abs(signalData.score) * 100;
-
-            const adaptedResponse = {
-                signal: internalSignal,
-                confidence: confidence,
-                reason: `AI calculated a composite score of ${signalData.score.toFixed(2)}.`,
-                // We now get the stop-loss distance directly from the AI.
-                stop_loss_distance_in_usd: signalData.stop_loss_distance_in_usd || 0
-            };
-
-            log.info(`AI Signal Received: ${signalData.action} (Score: ${signalData.score.toFixed(2)}). Adapted to: ${adaptedResponse.signal} (Confidence: ${adaptedResponse.confidence.toFixed(0)}), Suggested SL: $${adaptedResponse.stop_loss_distance_in_usd}`);
-            
-            // We need to pass this adapted response to the RiskManager, which already knows how to use it.
-            return adaptedResponse;
+            log.info(`AI Signal Received: ${signalData.signal} (Confidence: ${signalData.confidence}) | Reason: ${signalData.reason} | Suggested SL: $${signalData.stop_loss_distance_in_usd}`);
+            return signalData;
 
         } catch (error) {
-            log.error("Error generating or parsing signal from Quantitative prompt:", error);
+            log.error(`Error parsing signal from Hybrid prompt. The problematic text was: "${responseText}"`, error);
             return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0 };
         }
     }
