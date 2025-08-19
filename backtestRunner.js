@@ -11,7 +11,7 @@ import { BacktestExecutionHandler } from './backtestExecutionHandler.js';
 export class BacktestRunner {
     constructor(config) {
         this.config = config;
-        this.dataHandler = new BacktestDataHandler(config.DATA_FILE_PATH);
+        this.dataHandler = new BacktestDataHandler();
         this.executionHandler = new BacktestExecutionHandler(config.INITIAL_BALANCE);
         this.strategyEngine = new StrategyEngine();
         this.riskManager = new RiskManager({ leverage: 10, marginBuffer: 0.01 });
@@ -19,13 +19,16 @@ export class BacktestRunner {
     }
 
     async run() {
-        log.info('--- STARTING NEW BACKTEST (WITH MA FILTER) ---');
+        log.info('--- STARTING NEW DATABASE-POWERED BACKTEST ---');
         
+        // --- THE KEY CHANGE: Await the data loading ---
+        await this.dataHandler.load();
+
         const allCandles = this.dataHandler.getAllCandles();
         if (!allCandles || allCandles.length < this.config.WARMUP_PERIOD) {
             throw new Error("Not enough data for the warm-up period.");
         }
-
+        
         let apiCallCount = 0;
 
         for (let i = this.config.WARMUP_PERIOD; i < allCandles.length; i++) {
