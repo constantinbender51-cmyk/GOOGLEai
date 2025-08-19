@@ -197,7 +197,7 @@ async function runBacktest() {
     const winningTrades = allTrades.filter(t => t.pnl > 0).length;
     const losingTrades = totalTrades - winningTrades;
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
-    const finalBalance = executionHandler.balance;
+    const finalBalance = simulatedAccount.balance;
     const totalPnl = finalBalance - INITIAL_BALANCE;
 
     console.log("\n\n--- Backtest Performance Summary ---");
