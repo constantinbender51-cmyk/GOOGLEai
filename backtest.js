@@ -155,10 +155,14 @@ async function runBacktest() {
 
         // --- Trade Opening Logic (only runs if no trade is open) ---
         if (!executionHandler.getOpenTrade()) {
-            const loopStartTime = Date.now(); // Start timing right before the API call
+            if (apiCallCount >= MAX_API_CALLS) {
+                log.info(`[BACKTEST] Reached the speed run limit of ${MAX_API_CALLS} API calls. Ending simulation.`);
+                break;
+            }
 
+            const loopStartTime = Date.now();
             apiCallCount++;
-            log.info(`[BACKTEST] [Call #${apiCallCount}] Analyzing candle for ${new Date(currentCandle.timestamp * 1000).toISOString()}`);
+            log.info(`[BACKTEST] [Call #${apiCallCount}/${MAX_API_CALLS}] Analyzing candle...`);
             
             const tradingSignal = await strategyEngine.generateSignal(marketData);
 
@@ -174,28 +178,27 @@ async function runBacktest() {
                 }
             }
 
-            // --- THE FIX: Rate Limiting Logic is MOVED INSIDE this block ---
+            // --- Rate Limiting Logic (no changes needed) ---
             const loopEndTime = Date.now();
             const processingTimeMs = loopEndTime - loopStartTime;
             const delayNeededMs = (MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
-
             if (delayNeededMs > 0) {
-                log.info(`[BACKTEST] Processing took ${processingTimeMs}ms. Waiting for ${delayNeededMs}ms to respect rate limit...`);
                 await new Promise(resolve => setTimeout(resolve, delayNeededMs));
-            } else {
-                log.warn(`[BACKTEST] Warning: AI call and processing took longer (${processingTimeMs}ms) than the rate limit interval.`);
             }
         }
     }
 
     // --- Final Results ---
+    log.info('--- SPEED RUN COMPLETE ---');
     const totalTrades = executionHandler.trades.length;
     const winningTrades = executionHandler.trades.filter(t => t.pnl > 0).length;
     const losingTrades = totalTrades - winningTrades;
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
     const finalBalance = simulatedAccount.balance;
     const totalPnl = finalBalance - INITIAL_BALANCE;
-    console.log("\n\n--- Backtest Performance Summary ---");
+
+    console.log("\n\n--- Speed Run Performance Summary ---");
+    console.log(`(Based on ${apiCallCount} analyzed candles)`);
     console.log(`Initial Balance: $${INITIAL_BALANCE.toFixed(2)}`);
     console.log(`Final Balance:   $${finalBalance.toFixed(2)}`);
     console.log(`Total P&L:       $${totalPnl.toFixed(2)}`);
@@ -204,11 +207,8 @@ async function runBacktest() {
     console.log(`Winning Trades:  ${winningTrades}`);
     console.log(`Losing Trades:   ${losingTrades}`);
     console.log(`Win Rate:        ${winRate.toFixed(2)}%`);
-    console.log(`------------------------------------`);
-    console.log(`Total AI API Calls: ${apiCallCount}`);
-    console.log("\n");
+    console.log("------------------------------------\n");
 }
-
 // Run the combined script
 runBacktest().catch(err => {
     log.error('[BACKTEST] A critical error occurred.', err);
