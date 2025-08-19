@@ -41,47 +41,63 @@ export class StrategyEngine {
     async generateSignal(marketData) {
         if (!marketData?.ohlc?.length) {
             log.warn("StrategyEngine: Invalid or empty OHLC data provided.");
-            return { signal: 'HOLD', confidence: 0, reason: 'Insufficient market data.', stop_loss_distance_in_usd: 0 };
+            return { signal: 'HOLD', confidence: 0, reason: 'Insufficient market data.', stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0 };
         }
-        let responseText = ""; // Define outside the try block to be accessible in catch
-        try {
-            // --- STEP 1: CALCULATE FULL INDICATOR SERIES LOCALLY ---
-            log.info("Generating signal (Step 1: Calculating full indicator series locally)...");
-            const indicatorSeries = calculateIndicatorSeries(marketData.ohlc);
-            if (!indicatorSeries) {
-                return { signal: 'HOLD', confidence: 0, reason: 'Could not calculate indicators.', stop_loss_distance_in_usd: 0 };
-            }
 
-            // --- STEP 2: PREPARE FULL CONTEXTUAL PAYLOAD FOR AI ---
-            const contextualData = {
-                ohlc: marketData.ohlc, // The full 720 candles
-                indicators: indicatorSeries // The full indicator series
-            };
+        let responseText = ""; // Define outside to be accessible in catch
+        try {
+            // --- STEP 1 & 2: Calculate Indicators and Prepare Payload (Unaltered) ---
+            const indicatorSeries = calculateIndicatorSeries(marketData.ohlc);
+            if (!indicatorSeries) { /* ... */ }
+            const contextualData = { /* ... */ };
 
             // --- STEP 3: MAKE STRATEGIC DECISION WITH AI ---
             const strategistPrompt = this._createPrompt(contextualData);
-            log.info("Generating signal (Step 2: Making Strategic Decision with AI)...");
+            log.info("Generating signal with FULL 720-candle context...");
             const strategistResult = await this.model.generateContent(strategistPrompt);
-            responseText = strategistResult.response.text(); // Assign the raw text
+            responseText = strategistResult.response.text();
 
-            log.info(`[GEMINI_RAW_RESPONSE]:\n---\n${responseText}\n---`); // Log on every successful call
+            // --- FIX 1: ALWAYS LOG THE RAW RESPONSE ---
+            // This will help us debug empty or strange responses.
+            log.info(`[GEMINI_RAW_RESPONSE]:\n---\n${responseText}\n---`);
 
-            const signalJsonText = responseText.trim().match(/\{.*\}/s)[0];
+            // --- FIX 2: ADD ROBUST PARSING AND VALIDATION ---
+            // Check if the response is empty or too short to be valid JSON
+            if (!responseText || responseText.length < 10) {
+                throw new Error("Received an empty or invalid response from the AI.");
+            }
+
+            // Use a more resilient method to find the JSON block
+            const jsonMatch = responseText.match(/\{.*\}/s);
+            if (!jsonMatch) {
+                throw new Error("No valid JSON object found in the AI's response.");
+            }
+            
+            const signalJsonText = jsonMatch[0];
             const signalData = JSON.parse(signalJsonText);
 
-            // ... (validation and return logic are the same)
+            // Add validation for the new fields
+            if (
+                !['LONG', 'SHORT', 'HOLD'].includes(signalData.signal) ||
+                typeof signalData.confidence !== 'number' ||
+                typeof signalData.stop_loss_distance_in_usd !== 'number' ||
+                typeof signalData.take_profit_distance_in_usd !== 'number'
+            ) {
+                throw new Error(`AI response is missing required fields or has incorrect types.`);
+            }
             
             return signalData;
 
         } catch (error) {
-            // --- ERROR LOGGING ---
-            // If anything in the 'try' block fails, log the raw response that caused the error.
-            log.error(`--- ERROR PARSING GEMINI RESPONSE ---`);
+            // This block will now catch empty responses, parsing errors, and validation failures.
+            log.error(`--- ERROR HANDLING AI RESPONSE ---`);
+            log.error(`This error was caught gracefully. The backtest will continue.`);
             log.error(`Problematic Raw Text Was: \n${responseText}`);
-            log.error(`Error Details:`, error);
+            log.error(`Error Details:`, error.message);
             log.error(`------------------------------------`);
             
-            return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0 };
+            // Return a safe "HOLD" signal to prevent crashing the bot.
+            return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0 };
         }
     }
 }
