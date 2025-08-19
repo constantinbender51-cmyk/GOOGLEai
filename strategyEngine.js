@@ -17,7 +17,11 @@ export class StrategyEngine {
     /**
      * Prompt 1: The "Calculator". Takes OHLC data and returns raw indicator values.
      */
-    _createCalculatorPrompt() {
+    _createCalculatorPrompt(ohlcData) {
+        // --- THE FIX ---
+        // We must embed the data directly into the prompt string for the API to accept it.
+        const ohlcvString = JSON.stringify(ohlcData.map(c => [c.open, c.high, c.low, c.close, c.volume]));
+
         return `
             You are a pure technical analysis calculator. You have been provided with 720 1-hour OHLCV candles.
             Your ONLY job is to calculate the following indicators based on the most recent data point and return them in a single JSON object.
@@ -27,6 +31,10 @@ export class StrategyEngine {
             - The 3-candle slope of the RSI.
             - The value of the MACD(12,26,9) histogram.
             - The value of the 20-period ATR.
+            
+            Here is the OHLCV data:
+            ${ohlcvString}
+
             Output ONLY a JSON object with the keys: "ema_50", "ema_200", "rsi_14", "rsi_slope", "macd_histogram", "atr_20".
         `;
     }
@@ -35,6 +43,7 @@ export class StrategyEngine {
      * Prompt 2: The "Strategist". Takes indicator values and makes a trading decision.
      */
     _createStrategistPrompt(indicatorData) {
+        // This prompt is fine as it only takes a small, simple JSON object.
         return `
             You are an expert quantitative strategist. You have been provided with a set of pre-calculated technical indicators.
             Your ONLY job is to use these indicators to produce a single JSON trading signal.
@@ -62,9 +71,11 @@ export class StrategyEngine {
 
         try {
             // --- STEP 1: CALCULATE INDICATORS ---
-            const calculatorPrompt = this._createCalculatorPrompt();
+            const calculatorPrompt = this._createCalculatorPrompt(marketData.ohlc);
             log.info("Generating signal (Step 1: Calculating Indicators)...");
-            const calculatorResult = await this.model.generateContent([calculatorPrompt, { ohlc: marketData.ohlc }]);
+            // --- THE FIX ---
+            // We now pass only the prompt string, as the data is embedded within it.
+            const calculatorResult = await this.model.generateContent(calculatorPrompt);
             const indicatorJsonText = calculatorResult.response.text().trim().match(/\{.*\}/s)[0];
             const indicatorData = JSON.parse(indicatorJsonText);
             log.info(`[AI_CALCULATOR_OUTPUT]: ${JSON.stringify(indicatorData)}`);
