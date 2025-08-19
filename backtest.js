@@ -14,7 +14,14 @@ const DATA_FILE_PATH = './data/XBTUSD_60m_data.csv';
 const INITIAL_BALANCE = 10000;
 const MINIMUM_CONFIDENCE_THRESHOLD = 70;
 const MIN_SECONDS_BETWEEN_CALLS = 100;
-const WARMUP_PERIOD = 100; // Number of candles to "warm up" indicators before starting.
+// ... (imports)
+
+// --- Backtest Configuration ---
+// ...
+const DATA_WINDOW_SIZE = 720; // Define it here as well for clarity
+const WARMUP_PERIOD = DATA_WINDOW_SIZE; // Warm up with a full window of data
+
+// ... (the rest of the file is the same)
 
 // ==================================================================================
 // SECTION 1: DATA FETCHING LOGIC (copied from fetch_data.js)
