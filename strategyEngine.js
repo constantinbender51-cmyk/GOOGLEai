@@ -2,7 +2,7 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { log } from './logger.js';
-import { calculateIndicatorSeries } from './indicators.js'; // Import our new series calculator
+import { calculateIndicatorSeries } from './indicators.js';
 
 export class StrategyEngine {
     constructor() {
@@ -12,31 +12,34 @@ export class StrategyEngine {
             threshold: HarmBlockThreshold.BLOCK_NONE,
         }];
         this.model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings });
-        log.info("StrategyEngine initialized with local indicators and AI Strategist.");
+        log.info("StrategyEngine initialized with Definitive Hybrid Prompt.");
     }
 
-    _createStrategistPrompt(contextualData) {
+    _createPrompt(contextualData) {
+        // We embed the full, rich data directly into the prompt.
+        const dataPayload = JSON.stringify(contextualData, null, 2);
+
         return `
-            You are an expert quantitative strategist. You have been provided with pre-processed market data for PF_XBTUSD.
-            Your task is to synthesize this data into a single, final JSON trading signal.
+            You are an expert quantitative strategist for the PF_XBTUSD (Bitcoin Futures) market.
+            Your ONLY job is to produce a single JSON object based on the provided market data and a strict set of internal rules.
 
-            **Provided Data:**
-            1.  **Recent OHLC Candles:** The last 50 hours of price action.
-            2.  **Indicator Series:** The last 50 values for key technical indicators (EMAs, RSI, MACD, ATR).
+            **Provided Market Data (Full History):**
+            You have been provided with the last 720 1-hour OHLC candles and the corresponding calculated indicator series.
+            ${dataPayload}
 
-            **Data Payload:**
-            ${JSON.stringify(contextualData, null, 2)}
+            **Internal Analysis Rules (Perform these calculations internally):**
+            1.  Analyze the full 720-candle history provided.
+            2.  Calculate a composite score from -1 (strong bearish) to +1 (strong bullish) by synthesizing the provided indicator series (50-EMA, 200-EMA, RSI, MACD, ATR) and any other patterns you identify.
+            3.  Use the provided ATR series to assess current volatility.
 
-            **Your Task:**
-            Analyze all the provided data to understand the market's trend, momentum, and volatility.
-            1.  Form a holistic view. Do not just look at the last value, but the *shape and interaction* of the data series.
-            2.  Based on your analysis, determine a "signal": "LONG", "SHORT", or "HOLD".
-            3.  Assign a "confidence" score from 0 to 100.
-            4.  Suggest a "stop_loss_distance_in_usd" based on the recent ATR values.
-            5.  Provide a one-sentence "reason" for your decision.
+            **Your Task (Produce the final JSON based on your internal analysis):**
+            1.  **"signal"**: Based on your composite score, determine the action. If score ≥ 0.3, use "LONG". If score ≤ -0.3, use "SHORT". Otherwise, use "HOLD".
+            2.  **"confidence"**: Convert your composite score to a confidence value from 0 to 100 (e.g., a score of 0.42 becomes 42).
+            3.  **"stop_loss_distance_in_usd"**: If the signal is LONG or SHORT, provide a logical stop-loss distance in USD based on your internal ATR analysis. If the signal is HOLD, this must be 0.
+            4.  **"reason"**: Provide a brief, one-sentence rationale for your decision, mentioning the composite score.
 
-            **Output Task:**
-            Output ONLY a JSON object with the keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
+            **Output Format (Strict JSON only, no extra text or explanations):**
+            Return ONLY a JSON object with the four keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
         `;
     }
 
@@ -47,22 +50,21 @@ export class StrategyEngine {
         }
 
         try {
-            // --- STEP 1: CALCULATE INDICATOR SERIES LOCALLY ---
-            const seriesLength = 50;
-            log.info(`Generating signal (Step 1: Calculating ${seriesLength}-period indicator series locally)...`);
-            const indicatorSeries = calculateIndicatorSeries(marketData.ohlc, seriesLength);
+            // --- STEP 1: CALCULATE FULL INDICATOR SERIES LOCALLY ---
+            log.info("Generating signal (Step 1: Calculating full indicator series locally)...");
+            const indicatorSeries = calculateIndicatorSeries(marketData.ohlc);
             if (!indicatorSeries) {
                 return { signal: 'HOLD', confidence: 0, reason: 'Could not calculate indicators.', stop_loss_distance_in_usd: 0 };
             }
 
-            // --- STEP 2: PREPARE CONTEXTUAL PAYLOAD FOR AI ---
+            // --- STEP 2: PREPARE FULL CONTEXTUAL PAYLOAD FOR AI ---
             const contextualData = {
-                recent_ohlc: marketData.ohlc.slice(-seriesLength), // Also send the last 50 raw candles
-                indicators: indicatorSeries
+                ohlc: marketData.ohlc, // The full 720 candles
+                indicators: indicatorSeries // The full indicator series
             };
 
             // --- STEP 3: MAKE STRATEGIC DECISION WITH AI ---
-            const strategistPrompt = this._createStrategistPrompt(contextualData);
+            const strategistPrompt = this._createPrompt(contextualData);
             log.info("Generating signal (Step 2: Making Strategic Decision with AI)...");
             const strategistResult = await this.model.generateContent(strategistPrompt);
             const signalJsonText = strategistResult.response.text().trim().match(/\{.*\}/s)[0];
@@ -77,7 +79,7 @@ export class StrategyEngine {
             return signalData;
 
         } catch (error) {
-            log.error("Error during local-indicator -> AI-strategist signal generation:", error);
+            log.error("Error during definitive signal generation:", error);
             return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0 };
         }
     }
