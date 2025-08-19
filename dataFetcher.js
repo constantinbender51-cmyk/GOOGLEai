@@ -1,3 +1,5 @@
+// dataFetcher.js
+
 import fs from 'fs';
 import axios from 'axios';
 import { Parser as Json2CsvParser } from 'json2csv';
@@ -27,9 +29,10 @@ async function fetchBinanceOHLC(symbol, interval, startTime, limit) {
     }
 }
 
-async function ensureDataFileExists() {
-    if (fs.existsSync(DATA_FILE_PATH)) {
-        log.info(`[DATA] Data file already exists at ${DATA_FILE_PATH}. Skipping download.`);
+// --- FIX: Added export statement ---
+export async function ensureDataFileExists(filePath) {
+    if (fs.existsSync(filePath)) {
+        log.info(`[DATA] Data file already exists at ${filePath}. Skipping download.`);
         return;
     }
     log.info(`[DATA] Data file not found. Starting download from Binance...`);
@@ -57,8 +60,8 @@ async function ensureDataFileExists() {
         }
         const json2csvParser = new Json2CsvParser({ fields: ["timestamp", "open", "high", "low", "close", "volume"] });
         const csv = json2csvParser.parse(uniqueCandles);
-        fs.writeFileSync(DATA_FILE_PATH, csv);
-        log.info(`[DATA] Data successfully saved to ${DATA_FILE_PATH}`);
+        fs.writeFileSync(filePath, csv);
+        log.info(`[DATA] Data successfully saved to ${filePath}`);
     } else {
         throw new Error("Failed to download any historical data. Cannot proceed with backtest.");
     }
