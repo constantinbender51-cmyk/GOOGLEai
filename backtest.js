@@ -97,6 +97,7 @@ async function runBacktest() {
     const strategyEngine = new StrategyEngine();
     const riskManager = new RiskManager({ leverage: 10, marginBuffer: 0.01 });
 
+    let simulatedAccount = { balance: INITIAL_BALANCE }; 
     let apiCallCount = 0;
 
     // --- WARM-UP LOOP ---
@@ -169,7 +170,7 @@ async function runBacktest() {
                 const tradingSignal = await strategyEngine.generateSignal(marketData);
 
                 if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
-                    const tradeParams = riskManager.calculateTradeParameters({ ...marketData, balance: executionHandler.balance }, tradingSignal);
+                    const tradeParams = riskManager.calculateTradeParameters({ ...marketData, balance: simulatedAccount.balance }, tradingSignal);
                     if (tradeParams && tradeParams.size > 0) {
                         executionHandler.placeOrder({
                             signal: tradingSignal.signal,
