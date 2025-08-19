@@ -8,7 +8,6 @@ import { RiskManager } from './riskManager.js';
 import { BacktestDataHandler } from './backtestDataHandler.js';
 import { BacktestExecutionHandler } from './backtestExecutionHandler.js';
 import { log } from './logger.js';
-import { EMA } from 'technicalindicators'; // <-- IMPORT EMA
 
 // --- Configuration ---
 const DATA_FILE_PATH = './data/XBTUSD_60m_data.csv';
@@ -101,14 +100,15 @@ async function ensureDataFileExists() {
 // ==================================================================================
 
 async function runBacktest() {
-    log.info('--- STARTING NEW BACKTEST (WITH MA CROSSOVER FILTER) ---');
-    await ensureDataFileExists();
+    log.info('--- STARTING NEW BACKTEST ---');
+    await ensureDataFileExists(); // This function is defined further down
 
     const dataHandler = new BacktestDataHandler(DATA_FILE_PATH);
-    const executionHandler = new BacktestExecutionHandler(INITIAL_BALANCE); // Pass initial balance
+    const executionHandler = new BacktestExecutionHandler();
     const strategyEngine = new StrategyEngine();
     const riskManager = new RiskManager({ leverage: 10, marginBuffer: 0.01 });
 
+    let simulatedAccount = { balance: INITIAL_BALANCE };
     let apiCallCount = 0;
 
     // --- WARM-UP LOOP ---
@@ -124,17 +124,18 @@ async function runBacktest() {
 
     // --- MAIN SIMULATION LOOP ---
     while (true) {
+        const loopStartTime = Date.now();
         const marketData = dataHandler.fetchAllData();
         if (!marketData) {
             log.info('[BACKTEST] End of historical data reached.');
             break;
         }
-        
+        // ... (The rest of the backtesting loop remains exactly the same)
         const currentCandle = marketData.ohlc[marketData.ohlc.length - 1];
         const openTrade = executionHandler.getOpenTrade();
-
-        // --- Trade Closing Logic (Unaltered) ---
+        // --- Trade Closing Logic (runs on every candle, instantly) ---
         if (openTrade) {
+            // ... (The existing trade closing logic is perfect)
             let exitPrice = null;
             let exitReason = '';
             if (openTrade.signal === 'LONG') {
@@ -145,64 +146,49 @@ async function runBacktest() {
                 else if (currentCandle.low <= openTrade.takeProfit) { exitPrice = openTrade.takeProfit; exitReason = 'Take-Profit'; }
             }
             if (exitPrice) {
-                executionHandler.closeTrade(openTrade, exitPrice, currentCandle.timestamp);
+                const pnl = (exitPrice - openTrade.entryPrice) * openTrade.size * (openTrade.signal === 'LONG' ? 1 : -1);
+                simulatedAccount.balance += pnl;
+                openTrade.status = 'closed'; openTrade.exitPrice = exitPrice; openTrade.exitTime = currentCandle.timestamp; openTrade.pnl = pnl;
+                log.info(`[BACKTEST] ---- TRADE CLOSED via ${exitReason} ----`);
+                log.info(`[BACKTEST] Exit: ${exitPrice} | P&L: $${pnl.toFixed(2)} | New Balance: $${simulatedAccount.balance.toFixed(2)}`);
             }
         }
 
-        // --- Trade Opening Logic (This is where the filter is added) ---
+        // --- Trade Opening Logic (only runs if no trade is open) ---
         if (!executionHandler.getOpenTrade()) {
+            if (apiCallCount >= MAX_API_CALLS) {
+                log.info(`[BACKTEST] Reached the speed run limit of ${MAX_API_CALLS} API calls. Ending simulation.`);
+                break;
+            }
+
+            const loopStartTime = Date.now();
+            apiCallCount++;
+            log.info(`[BACKTEST] [Call #${apiCallCount}/${MAX_API_CALLS}] Analyzing candle...`);
             
-            // --- MOVING AVERAGE CROSSOVER PRE-FILTER ---
-            const closePrices = marketData.ohlc.map(c => c.close);
-            const fastEMA = EMA.calculate({ period: 12, values: closePrices });
-            const slowEMA = EMA.calculate({ period: 26, values: closePrices });
+            const tradingSignal = await strategyEngine.generateSignal(marketData);
 
-            const lastFast = fastEMA[fastEMA.length - 1];
-            const prevFast = fastEMA[fastEMA.length - 2];
-            const lastSlow = slowEMA[slowEMA.length - 1];
-            const prevSlow = slowEMA[slowEMA.length - 2];
-
-            const isBullishCrossover = prevFast <= prevSlow && lastFast > lastSlow;
-            const isBearishCrossover = prevFast >= prevSlow && lastFast < lastSlow;
-
-            // ONLY proceed if a crossover was detected
-            if (isBullishCrossover || isBearishCrossover) {
-                log.info(`[FILTER] Potential signal found: ${isBullishCrossover ? 'Bullish' : 'Bearish'} Crossover.`);
-
-                if (apiCallCount >= MAX_API_CALLS) {
-                    log.info(`[BACKTEST] Reached the API call limit of ${MAX_API_CALLS}. Ending simulation.`);
-                    break;
-                }
-
-                const loopStartTime = Date.now();
-                apiCallCount++;
-                log.info(`[BACKTEST] [Call #${apiCallCount}/${MAX_API_CALLS}] Analyzing crossover event...`);
-                
-                const tradingSignal = await strategyEngine.generateSignal(marketData);
-
-                if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
-                    const tradeParams = riskManager.calculateTradeParameters({ ...marketData, balance: executionHandler.balance }, tradingSignal);
-                    if (tradeParams && tradeParams.size > 0) {
-                        executionHandler.placeOrder({
-                            signal: tradingSignal.signal,
-                            params: tradeParams,
-                            entryPrice: currentCandle.close,
-                            entryTime: currentCandle.timestamp,
-                            reason: tradingSignal.reason
-                        });
-                    }
-                }
-
-                const loopEndTime = Date.now();
-                const processingTimeMs = loopEndTime - loopStartTime;
-                const delayNeededMs = (MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
-                if (delayNeededMs > 0) {
-                    await new Promise(resolve => setTimeout(resolve, delayNeededMs));
+            if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
+                const tradeParams = riskManager.calculateTradeParameters({ ...marketData, balance: simulatedAccount.balance }, tradingSignal);
+                if (tradeParams && tradeParams.size > 0) {
+                    executionHandler.placeOrder({
+                        signal: tradingSignal.signal,
+                        params: tradeParams,
+                        entryPrice: currentCandle.close,
+                        entryTime: currentCandle.timestamp,
+                    });
                 }
             }
-            // If no crossover, the loop continues to the next candle instantly.
+
+            // --- Rate Limiting Logic (no changes needed) ---
+            const loopEndTime = Date.now();
+            const processingTimeMs = loopEndTime - loopStartTime;
+            const delayNeededMs = (MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
+            if (delayNeededMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, delayNeededMs));
+            }
         }
     }
+
     // --- Final Results ---
     log.info('--- SPEED RUN COMPLETE ---');
     const totalTrades = executionHandler.trades.length;
