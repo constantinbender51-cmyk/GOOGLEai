@@ -208,7 +208,6 @@ export class BacktestRunner {
         } else {
             log.info(`[BACKTEST] AI returned HOLD or an invalid trade plan. No action taken.`);
         }
-    }
         const processingTimeMs = Date.now() - loopStartTime;
         const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
         if (delayNeededMs > 0) {
