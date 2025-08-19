@@ -5,11 +5,12 @@
   "main": "bot.js",
   "type": "module",
   "scripts": {
-    "start": "node fetchAllData.js",
+    "start": "node db/seed.js.js",
     "_start-live-bot": "node bot.js",
     "_fetch-data": "node fetch_data.js",
     "_backtest": "node backtest.js",
     "fetch-data": "node fetchAllData.js",
+    "db:seed": "node db/seed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Your Name",
