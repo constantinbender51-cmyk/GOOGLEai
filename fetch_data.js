@@ -6,109 +6,94 @@ import { Parser } from 'json2csv';
 import { log } from './logger.js';
 
 // --- Configuration ---
-const PAIR = 'XBTUSD';
-const INTERVAL = 60;
-const OUTPUT_FILE = `./data/${PAIR}_${INTERVAL}m_data.csv`;
+const BINANCE_PAIR = 'BTCUSDT'; // Binance uses 'USDT'
+const KRAKEN_PAIR_FILENAME = 'XBTUSD'; // We'll still name the file for Kraken
+const INTERVAL = '1h'; // Binance uses '1h' for 1-hour
+const OUTPUT_FILE = `./data/${KRAKEN_PAIR_FILENAME}_60m_data.csv`;
 const START_DATE = '2022-01-01T00:00:00Z';
+const BATCH_SIZE = 1000; // Binance allows up to 1000 candles per request
 
-async function fetchPaginatedOHLC(pair, interval, since) {
-    const url = `https://api.kraken.com/0/public/OHLC`;
-    const params = { pair, interval, since };
+/**
+ * Fetches a batch of OHLC data from Binance.
+ * @param {string} symbol - The trading pair (e.g., 'BTCUSDT').
+ * @param {string} interval - The candle interval (e.g., '1h').
+ * @param {number} startTime - The timestamp to start fetching from (in milliseconds).
+ * @param {number} limit - The number of candles to fetch.
+ * @returns {Promise<Array<object>>} A promise that resolves to an array of formatted candles.
+ */
+async function fetchBinanceOHLC(symbol, interval, startTime, limit) {
+    const url = 'https://api.binance.com/api/v3/klines';
+    const params = { symbol, interval, startTime, limit };
     try {
         const response = await axios.get(url, { params });
-        const data = response.data;
-        if (data.error?.length > 0) {
-            throw new Error(data.error.join(', '));
-        }
-        const resultKey = Object.keys(data.result).find(k => k !== 'last');
-        if (!resultKey) {
-            return { candles: [], last: null };
-        }
-        const candles = data.result[resultKey].map(item => ({
-            date: new Date(item[0] * 1000).toISOString(),
-            open: parseFloat(item[1]),
-            high: parseFloat(item[2]),
-            low: parseFloat(item[3]),
-            close: parseFloat(item[4]),
-            volume: parseFloat(item[6]),
+        // Binance returns an array of arrays, so we format it.
+        return response.data.map(kline => ({
+            timestamp: Math.floor(kline[0] / 1000), // Convert ms to s
+            open: parseFloat(kline[1]),
+            high: parseFloat(kline[2]),
+            low: parseFloat(kline[3]),
+            close: parseFloat(kline[4]),
+            volume: parseFloat(kline[5]),
         }));
-        return { candles, last: data.result.last };
     } catch (error) {
-        log.error(`Error in fetchPaginatedOHLC for since=${since} | ${error.message}`);
-        // Re-throw the error so the main loop can catch it and stop
+        log.error(`Failed to fetch Binance OHLC data. ${error.message}`);
         throw error;
     }
 }
 
+/**
+ * Main function to paginate through the Binance API and save all data.
+ */
 async function fetchAllHistoricalData() {
-    log.info(`Starting historical data download for ${PAIR}...`);
+    log.info(`Starting historical data download for ${BINANCE_PAIR} from Binance...`);
 
     let allCandles = [];
-    let since = new Date(START_DATE).getTime() / 1000;
-    let previousSince = null; // Variable to track the last 'since' value
+    let startTime = new Date(START_DATE).getTime();
+    const endTime = Date.now(); // Fetch up to the current time
 
-    while (true) {
-        // --- THE FIX: Check for a stagnant 'since' value ---
-        if (since === previousSince) {
-            log.info("The 'since' timestamp is not advancing. All data has been fetched.");
-            break;
-        }
-
+    while (startTime < endTime) {
+        log.info(`Fetching data from ${new Date(startTime).toISOString()}...`);
+        
         try {
-            log.info(`Fetching data since ${new Date(since * 1000).toISOString()}...`);
-            
-            const { candles, last } = await fetchPaginatedOHLC(PAIR, INTERVAL, since);
+            const candles = await fetchBinanceOHLC(BINANCE_PAIR, INTERVAL, startTime, BATCH_SIZE);
 
-            if (!candles || candles.length === 0) {
-                log.info("No more data returned from API. Ending fetch.");
+            if (candles.length === 0) {
+                log.info("No more data returned from Binance. Ending fetch.");
                 break;
             }
 
             allCandles.push(...candles);
+
+            // The next request starts after the last candle we received.
+            startTime = candles[candles.length - 1].timestamp * 1000 + 1; // Move to the next millisecond
+
             log.info(`Fetched ${candles.length} candles. Total so far: ${allCandles.length}.`);
 
-            previousSince = since; // Store the 'since' we just used
-            since = last; // Update 'since' for the next loop
-
-            if (!since) {
-                log.info("API did not provide a 'last' timestamp. Assuming all data is fetched.");
-                break;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Increased delay to be safer
+            // Be respectful to the API
+            await new Promise(resolve => setTimeout(resolve, 500)); // 0.5-second delay is fine for Binance
 
         } catch (error) {
-            log.error("Stopping fetch loop due to an error in fetchPaginatedOHLC.");
-            break; // Exit the loop on error
+            log.error("Stopping fetch loop due to an error.");
+            break;
         }
     }
 
     log.info(`Download complete. Total candles fetched: ${allCandles.length}.`);
 
     if (allCandles.length > 0) {
-        const uniqueCandles = Array.from(new Map(allCandles.map(c => [c.date, c])).values());
+        const uniqueCandles = Array.from(new Map(allCandles.map(c => [c.timestamp, c])).values());
         log.info(`Removed ${allCandles.length - uniqueCandles.length} duplicate candles.`);
-
-        const candlesForCsv = uniqueCandles.map(c => ({
-            timestamp: new Date(c.date).getTime() / 1000,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume
-        }));
 
         if (!fs.existsSync('./data')) {
             fs.mkdirSync('./data');
         }
-        const json2csvParser = new Parser();
-        const csv = json2csvParser.parse(candlesForCsv);
+        const json2csvParser = new Parser({ fields: ["timestamp", "open", "high", "low", "close", "volume"] });
+        const csv = json2csvParser.parse(uniqueCandles);
         fs.writeFileSync(OUTPUT_FILE, csv);
         log.info(`Data successfully saved to ${OUTPUT_FILE}`);
     }
 }
 
 fetchAllHistoricalData().catch(err => {
-    // The error is already logged inside the loop, so we just note the process ended.
     log.info("Data fetching process finished.");
 });
