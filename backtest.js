@@ -12,8 +12,8 @@ import { log } from './logger.js';
 // --- Configuration ---
 const DATA_FILE_PATH = './data/XBTUSD_60m_data.csv';
 const INITIAL_BALANCE = 10000;
-const MINIMUM_CONFIDENCE_THRESHOLD = 70;
-const MIN_SECONDS_BETWEEN_CALLS = 100;
+const MINIMUM_CONFIDENCE_THRESHOLD = 40;
+const MIN_SECONDS_BETWEEN_CALLS = 1;
 // ... (imports)
 
 // --- Backtest Configuration ---
