@@ -73,6 +73,8 @@ export class BacktestRunner {
         return (prevFast <= prevSlow && lastFast > lastSlow) || (prevFast >= prevSlow && lastFast < lastSlow);
     }
 
+    // ... (continued from previous response)
+
     async _handleSignal(marketData, currentCandle, apiCallCount) {
         log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing crossover event...`);
         const loopStartTime = Date.now();
@@ -93,4 +95,40 @@ export class BacktestRunner {
         }
 
         const processingTimeMs = Date.now() - loopStartTime;
-        const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingT
+        const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
+        if (delayNeededMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, delayNeededMs));
+        }
+    }
+
+    _printSummary(apiCallCount) {
+        log.info('--- BACKTEST COMPLETE ---');
+        const allTrades = this.executionHandler.getTrades();
+        const totalTrades = allTrades.length;
+        const winningTrades = allTrades.filter(t => t.pnl > 0).length;
+        const losingTrades = totalTrades - winningTrades;
+        const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+        const finalBalance = this.executionHandler.balance;
+        const totalPnl = finalBalance - this.config.INITIAL_BALANCE;
+
+        console.log("\n\n--- Backtest Performance Summary ---");
+        console.log(`(Based on ${apiCallCount} analyzed crossover events)`);
+        console.log(`Initial Balance: $${this.config.INITIAL_BALANCE.toFixed(2)}`);
+        console.log(`Final Balance:   $${finalBalance.toFixed(2)}`);
+        console.log(`Total P&L:       $${totalPnl.toFixed(2)}`);
+        console.log(`------------------------------------`);
+        console.log(`Total Trades:    ${totalTrades}`);
+        console.log(`Winning Trades:  ${winningTrades}`);
+        console.log(`Losing Trades:   ${losingTrades}`);
+        console.log(`Win Rate:        ${winRate.toFixed(2)}%`);
+        console.log("------------------------------------\n");
+
+        if (totalTrades > 0) {
+            console.log("--- Trade Log ---");
+            allTrades.forEach((trade, index) => {
+                console.log(`Trade #${index + 1}: ${trade.signal} | P&L: $${trade.pnl.toFixed(2)} | Reason: ${trade.reason}`);
+            });
+            console.log("-----------------\n");
+        }
+    }
+}
