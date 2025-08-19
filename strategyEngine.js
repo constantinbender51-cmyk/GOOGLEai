@@ -14,9 +14,13 @@ export class StrategyEngine {
         log.info("StrategyEngine initialized (Project Chimera).");
     }
 
-    _createSystemPrompt() {
-        // This is the new, professional-grade system prompt
+    // We combine the system and user prompts into one
+    _createFullPrompt(marketData) {
+        const dataPayload = JSON.stringify(marketData, null, 2);
+
+        // --- THIS IS THE COMBINED PROMPT ---
         return `
+            // SYSTEM INSTRUCTION START
             You are a senior quantitative trader.  
             Your only task is to output a single JSON object with the following keys:
 
@@ -47,62 +51,48 @@ export class StrategyEngine {
             9. Round prices to nearest $5 (tick size on most venues).
 
             Output ONLY the JSON, no markdown fences or comments.
-        `;
-    }
+            // SYSTEM INSTRUCTION END
 
-    _createUserPrompt(marketData) {
-        // The user prompt now provides the timestamp and attaches the data
-        const dataPayload = JSON.stringify(marketData, null, 2);
-        return `
+            // USER PROMPT START
             Timestamp: ${new Date().toISOString()}
             <data>
             ${dataPayload}
             </data>
 
             Generate the signal.
+            // USER PROMPT END
         `;
     }
 
     async generateSignal(marketData) {
         if (!marketData?.ohlc_1h?.length) {
-            log.warn("StrategyEngine: Invalid or empty 1h OHLC data provided.");
-            return { signal: 'HOLD' }; // Return a minimal object on failure
+            return { signal: 'HOLD' };
         }
 
         let strategistResult = null;
         try {
-            const systemPrompt = this._createSystemPrompt();
-            const userPrompt = this._createUserPrompt(marketData);
+            // --- THIS IS THE FIX ---
+            // We create one single prompt and use the reliable generateContent method.
+            const fullPrompt = this._createFullPrompt(marketData);
 
-            // Using the new conversational model for system prompts
-            const chat = this.model.startChat({
-                systemInstruction: systemPrompt,
-                history: [],
-            });
-
-            log.info("Generating Chimera signal...");
-            strategistResult = await chat.sendMessage(userPrompt);
+            log.info("Generating Chimera signal using generateContent...");
+            strategistResult = await this.model.generateContent(fullPrompt);
             
             const responseText = strategistResult.response.text();
             log.info(`[GEMINI_RAW_RESPONSE]:\n---\n${responseText}\n---`);
 
-            if (!responseText || responseText.length < 10) {
-                throw new Error("Received an empty or invalid response from the AI.");
-            }
+            if (!responseText) { throw new Error("Received an empty response from the AI."); }
             
             const jsonMatch = responseText.match(/\{.*\}/s);
             if (!jsonMatch) { throw new Error("No valid JSON object found in the AI's response."); }
             
             const signalData = JSON.parse(jsonMatch[0]);
-
-            // TODO: Add validation for the new fields later
-
             return signalData;
 
         } catch (error) {
             log.error(`--- ERROR HANDLING AI RESPONSE ---`);
             log.error(`Full API Result Object Was: \n${JSON.stringify(strategistResult, null, 2)}`);
-            log.error(`Error Details:`, error.message);
+            log.error(`Error Details:`, error); // Log the full error object
             log.error(`------------------------------------`);
             return { signal: 'HOLD' };
         }
