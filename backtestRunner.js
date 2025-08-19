@@ -6,6 +6,7 @@ import { BacktestDataHandler } from './backtestDataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
 import { BacktestExecutionHandler } from './backtestExecutionHandler.js';
+import { calculateIndicatorSeries } from './indicators.js';
 
 // --- FIX: Added export statement ---
 export class BacktestRunner {
@@ -155,10 +156,31 @@ export class BacktestRunner {
     }
     async _handleSignal(marketData, currentCandle, apiCallCount) {
         log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing event...`);
-        const loopStartTime = Date.now();
         
-        const tradePlan = await this.strategyEngine.generateSignal(marketData);
+        // --- THIS IS THE FIX ---
+        // We must calculate the indicators and include them in the payload.
+        
+        // 1. Calculate the indicators from the 1h data
+        const indicators_1h = calculateIndicatorSeries(marketData.ohlc_1h);
+        
+        // 2. Assemble the complete payload
+        const marketDataForAI = {
+            current_utc_timestamp: marketData.current_utc_timestamp,
+            ohlc_1h: marketData.ohlc_1h,
+            indicators_1h: indicators_1h, // <-- ADD THE INDICATORS
+            ohlc_15m: marketData.ohlc_15m,
+            // ... (mocked data is still mocked, which is fine for now)
+            order_book_l2: { bids: [], asks: [] },
+            funding_rates: [],
+            open_interest_delta: [],
+            social_sentiment: [],
+            spot_futures_basis: 0.0,
+            whale_wallet_flow: 0.0,
+            implied_volatility: {}
+        };
 
+        const tradePlan = await this.strategyEngine.generateSignal(marketDataForAI);
+        
         // --- THIS IS THE FIX ---
         // We must validate the entire tradePlan object before using it.
         // The AI might return a minimal object on failure.
