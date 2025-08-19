@@ -8,6 +8,7 @@ import { RiskManager } from './riskManager.js';
 import { BacktestDataHandler } from './backtestDataHandler.js';
 import { BacktestExecutionHandler } from './backtestExecutionHandler.js';
 import { log } from './logger.js';
+import { EMA } from 'technicalindicators'; // <-- IMPORT EMA
 
 // --- Configuration ---
 const DATA_FILE_PATH = './data/XBTUSD_60m_data.csv';
