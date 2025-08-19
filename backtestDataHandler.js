@@ -1,7 +1,10 @@
+// backtestDataHandler.js
+
 import fs from 'fs';
 import { parse } from 'csv-parse/sync';
 import { log } from './logger.js';
 
+// --- FIX: Added export statement ---
 export class BacktestDataHandler {
     constructor(pathToCsv) {
         try {
