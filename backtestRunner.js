@@ -158,38 +158,38 @@ export class BacktestRunner {
         log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing event...`);
         
         // --- THIS IS THE FIX ---
-        // We must calculate the indicators and include them in the payload.
+        // We must ensure we are using the correct marketData object
+        // that contains ALL the necessary pieces.
         
-        // 1. Calculate the indicators from the 1h data
+        // 1. Calculate the indicators from the 1h data that was passed in.
         const indicators_1h = calculateIndicatorSeries(marketData.ohlc_1h);
         
-        // 2. Assemble the complete payload
+        // 2. Assemble the complete payload for the AI.
+        // This object contains EVERYTHING the AI needs.
         const marketDataForAI = {
             current_utc_timestamp: marketData.current_utc_timestamp,
             ohlc_1h: marketData.ohlc_1h,
-            indicators_1h: indicators_1h, // <-- ADD THE INDICATORS
+            indicators_1h: indicators_1h, // The calculated indicators
             ohlc_15m: marketData.ohlc_15m,
-            // ... (mocked data is still mocked, which is fine for now)
-            order_book_l2: { bids: [], asks: [] },
-            funding_rates: [],
-            open_interest_delta: [],
-            social_sentiment: [],
-            spot_futures_basis: 0.0,
-            whale_wallet_flow: 0.0,
-            implied_volatility: {}
+            order_book_l2: marketData.order_book_l2,
+            funding_rates: marketData.funding_rates,
+            open_interest_delta: marketData.open_interest_delta,
+            social_sentiment: marketData.social_sentiment,
+            spot_futures_basis: marketData.spot_futures_basis,
+            whale_wallet_flow: marketData.whale_wallet_flow,
+            implied_volatility: marketData.implied_volatility
         };
 
+        // 3. Pass THIS specific object to the strategy engine.
         const tradePlan = await this.strategyEngine.generateSignal(marketDataForAI);
         
-        // --- THIS IS THE FIX ---
-        // We must validate the entire tradePlan object before using it.
-        // The AI might return a minimal object on failure.
+        // 4. Now, validate and execute the trade plan.
         if (
             tradePlan &&
             tradePlan.signal &&
             tradePlan.signal !== 'HOLD' &&
-            trade.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD &&
-            tradePlan.entry_price && // Check for all required fields
+            tradePlan.confidence >= this.config.MINIMUM_CONFIDENCE_THRESHOLD &&
+            tradePlan.entry_price &&
             tradePlan.stop_loss_price &&
             tradePlan.take_profit_price
         ) {
@@ -206,10 +206,9 @@ export class BacktestRunner {
                 });
             }
         } else {
-            // This block now handles cases where the AI returned HOLD or an incomplete object.
             log.info(`[BACKTEST] AI returned HOLD or an invalid trade plan. No action taken.`);
         }
-
+    }
         const processingTimeMs = Date.now() - loopStartTime;
         const delayNeededMs = (this.config.MIN_SECONDS_BETWEEN_CALLS * 1000) - processingTimeMs;
         if (delayNeededMs > 0) {
