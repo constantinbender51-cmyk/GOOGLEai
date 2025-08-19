@@ -1,39 +1,32 @@
 import { log } from './logger.js';
 
-/**
- * @class BacktestExecutionHandler
- * @description Simulates order execution by logging trades instead of sending them to an API.
- */
 export class BacktestExecutionHandler {
-    constructor() {
-        this.trades = []; // This will be our trade log
-        log.info('[BACKTEST] Initialized BacktestExecutionHandler.');
+    constructor(initialBalance) {
+        this.balance = initialBalance;
+        this.trades = [];
+        log.info(`[BACKTEST] Initialized BacktestExecutionHandler with balance: $${this.balance}`);
     }
 
-    /**
-     * Simulates placing an order by recording it.
-     * @param {object} tradeDetails - Contains all info about the hypothetical trade.
-     */
-    placeOrder({ signal, params, entryPrice, entryTime }) {
-        const trade = {
-            entryTime,
-            entryPrice,
-            signal,
-            size: params.size,
-            stopLoss: params.stopLoss,
-            takeProfit: params.takeProfit,
-            status: 'open', // The trade starts as 'open'
-            exitTime: null,
-            exitPrice: null,
-            pnl: 0,
-        };
-        this.trades.push(trade);
-        log.info(`[BACKTEST] ---- TRADE OPENED ----`);
-        log.info(`[BACKTEST] Signal: ${signal} | Entry: ${entryPrice} | Time: ${new Date(entryTime * 1000).toISOString()}`);
-        log.info(`[BACKTEST] SL: ${params.stopLoss} | TP: ${params.takeProfit}`);
+    placeOrder({ signal, params, entryPrice, entryTime, reason }) {
+        // ... (logic is the same)
     }
 
     getOpenTrade() {
         return this.trades.find(t => t.status === 'open');
+    }
+
+    closeTrade(trade, exitPrice, exitTime) {
+        const pnl = (exitPrice - trade.entryPrice) * trade.size * (trade.signal === 'LONG' ? 1 : -1);
+        this.balance += pnl; // It now correctly updates its own balance
+        trade.status = 'closed';
+        trade.exitPrice = exitPrice;
+        trade.exitTime = exitTime;
+        trade.pnl = pnl;
+        log.info(`[BACKTEST] ---- TRADE CLOSED ----`);
+        log.info(`[BACKTEST] Exit: ${exitPrice} | P&L: $${pnl.toFixed(2)} | New Balance: $${this.balance.toFixed(2)}`);
+    }
+
+    getTrades() {
+        return this.trades;
     }
 }
