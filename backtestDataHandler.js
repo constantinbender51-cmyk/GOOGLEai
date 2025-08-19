@@ -1,23 +1,22 @@
+// backtestDataHandler.js
+
 import fs from 'fs';
 import { parse } from 'csv-parse/sync';
 import { log } from './logger.js';
 
+const DATA_WINDOW_SIZE = 720; // The number of candles to provide to the strategy engine
+
 /**
  * @class BacktestDataHandler
- * @description Reads historical OHLC data from a CSV file and serves it one candle at a time for simulation.
+ * @description Reads historical data and serves a sliding window of the most recent candles.
  */
 export class BacktestDataHandler {
-    /**
-     * @param {string} pathToCsv - The file path to the historical data CSV.
-     */
     constructor(pathToCsv) {
         log.info(`[BACKTEST] Initializing BacktestDataHandler with file: ${pathToCsv}`);
         try {
             const fileContent = fs.readFileSync(pathToCsv, { encoding: 'utf-8' });
-            // The 'columns: true' option automatically uses the header row for keys.
-            // The 'cast: true' option automatically converts strings to numbers/booleans where appropriate.
             this.allOhlcData = parse(fileContent, { columns: true, cast: true });
-            this.currentIndex = 0; // This pointer represents the "present moment" in our simulation.
+            this.currentIndex = 0;
             log.info(`[BACKTEST] Successfully loaded ${this.allOhlcData.length} historical candles.`);
         } catch (error) {
             log.error(`[BACKTEST] Failed to read or parse the CSV file at ${pathToCsv}`, error);
@@ -26,37 +25,35 @@ export class BacktestDataHandler {
     }
 
     /**
-     * Simulates fetching the latest market data by returning all data up to the current point in the simulation.
-     * @returns {object|null} A marketData-like object for the strategy, or null if the simulation is over.
+     * Simulates fetching the latest market data by returning a fixed-size sliding window of data.
+     * @returns {object|null} A marketData-like object, or null if the simulation is over.
      */
     fetchAllData() {
-        // Check if we have run out of historical data.
         if (this.currentIndex >= this.allOhlcData.length) {
-            return null; // Signal that the backtest is complete.
+            return null;
         }
 
-        // Get all data from the beginning up to the current index.
-        // The StrategyEngine needs a history of candles to calculate indicators.
-        const currentDataSlice = this.allOhlcData.slice(0, this.currentIndex + 1);
+        // --- SLIDING WINDOW LOGIC ---
+        // Calculate the start index of our window.
+        // If currentIndex is less than 720, the window starts at 0.
+        // Otherwise, it slides forward.
+        const startIndex = Math.max(0, this.currentIndex - DATA_WINDOW_SIZE + 1);
+        
+        // Get the slice of data representing the current window.
+        const currentWindow = this.allOhlcData.slice(startIndex, this.currentIndex + 1);
 
-        // Move our simulation's "present moment" forward by one candle.
+        // Move our simulation's "present moment" forward.
         this.currentIndex++;
 
-        // Return a fake marketData object that mimics the live DataHandler's output.
         return {
-            ohlc: currentDataSlice,
-            // These values are placeholders. The backtest loop will manage the simulated balance and positions.
-            balance: 0, 
+            ohlc: currentWindow,
+            balance: 0,
             openPositions: [],
             openOrders: [],
             fills: []
         };
     }
 
-    /**
-     * A helper to get the total number of data points.
-     * @returns {number}
-     */
     getTotalCandles() {
         return this.allOhlcData.length;
     }
