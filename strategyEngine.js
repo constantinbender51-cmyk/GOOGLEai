@@ -11,40 +11,46 @@ export class StrategyEngine {
             threshold: HarmBlockThreshold.BLOCK_NONE,
         }];
         this.model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings });
-        log.info("StrategyEngine initialized with Hybrid Quantitative Prompt.");
+        log.info("StrategyEngine initialized with a two-prompt (Calculator -> Strategist) architecture.");
     }
 
-    _createPrompt(ohlcData) {
-        const lastCandle = ohlcData[ohlcData.length - 1];
-        const candleTimestamp = lastCandle.timestamp ? new Date(lastCandle.timestamp * 1000) : new Date(lastCandle.date);
-
+    /**
+     * Prompt 1: The "Calculator". Takes OHLC data and returns raw indicator values.
+     */
+    _createCalculatorPrompt() {
         return `
-            You are an expert quantitative strategist for the PF_XBTUSD (Bitcoin Futures) market.
-            Your ONLY job is to produce a single JSON object based on the provided market data and a strict set of internal rules.
+            You are a pure technical analysis calculator. You have been provided with 720 1-hour OHLCV candles.
+            Your ONLY job is to calculate the following indicators based on the most recent data point and return them in a single JSON object.
+            - The value of the 50-period EMA.
+            - The value of the 200-period EMA.
+            - The value of the 14-period RSI.
+            - The 3-candle slope of the RSI.
+            - The value of the MACD(12,26,9) histogram.
+            - The value of the 20-period ATR.
+            Output ONLY a JSON object with the keys: "ema_50", "ema_200", "rsi_14", "rsi_slope", "macd_histogram", "atr_20".
+        `;
+    }
 
-            **Internal Analysis Rules (Perform these calculations internally):**
-            1.  Analyze the last 720 1-hour OHLC candles.
-            2.  Calculate a composite score from -1 (strong bearish) to +1 (strong bullish) by synthesizing at least the following indicators:
-                • 50-EMA and 200-EMA crossover status.
-                • RSI(14) current value and its 3-candle slope.
-                • MACD(12,26,9) histogram direction.
-                • A custom volume-weighted price change indicator for recent buying/selling pressure.
-            3.  Use a 20-period ATR to assess current volatility.
+    /**
+     * Prompt 2: The "Strategist". Takes indicator values and makes a trading decision.
+     */
+    _createStrategistPrompt(indicatorData) {
+        return `
+            You are an expert quantitative strategist. You have been provided with a set of pre-calculated technical indicators.
+            Your ONLY job is to use these indicators to produce a single JSON trading signal.
 
-            **Your Task (Produce the final JSON based on your internal analysis):**
-            1.  **"signal"**: Based on your composite score, determine the action. If score ≥ 0.3, use "LONG". If score ≤ -0.3, use "SHORT". Otherwise, use "HOLD".
-            2.  **"confidence"**: Convert your composite score to a confidence value from 0 to 100. (e.g., a score of 0.42 becomes a confidence of 42, a score of -0.5 becomes 50).
-            3.  **"stop_loss_distance_in_usd"**: If the signal is LONG or SHORT, provide a logical stop-loss distance in USD based on your internal ATR calculation. If the signal is HOLD, this must be 0.
-            4.  **"reason"**: Provide a brief, one-sentence rationale for your decision, mentioning the composite score.
+            **Provided Indicators:**
+            ${JSON.stringify(indicatorData, null, 2)}
 
-            **Output Format (Strict JSON only, no extra text or explanations):**
-            Return ONLY a JSON object with the four keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
+            **Internal Analysis Rules:**
+            1.  Calculate a composite score from -1 to +1 based on the provided indicators.
+            2.  Based on the score, determine a "signal": "LONG" if score >= 0.3, "SHORT" if score <= -0.3, otherwise "HOLD".
+            3.  Calculate "confidence" by taking the absolute value of your score and multiplying by 100.
+            4.  If the signal is LONG or SHORT, set "stop_loss_distance_in_usd" to be the provided "atr_20" value multiplied by 2.0. If HOLD, this must be 0.
+            5.  Create a one-sentence "reason" explaining your decision, including the composite score.
 
-            Example for a LONG signal:
-            {"signal":"LONG","confidence":42,"reason":"Composite score of 0.42 indicates a bullish setup.","stop_loss_distance_in_usd":850}
-
-            Example for a HOLD signal:
-            {"signal":"HOLD","confidence":15,"reason":"Composite score of 0.15 is not strong enough to signal a trade.","stop_loss_distance_in_usd":0}
+            **Output Task:**
+            Output ONLY a JSON object with the four keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
         `;
     }
 
@@ -54,35 +60,32 @@ export class StrategyEngine {
             return { signal: 'HOLD', confidence: 0, reason: 'Insufficient market data.', stop_loss_distance_in_usd: 0 };
         }
 
-        const prompt = this._createPrompt(marketData.ohlc);
-        log.info("Generating signal with Hybrid Quantitative prompt...");
-
         try {
-            const result = await this.model.generateContent(prompt);
-            const responseText = result.response.text();
-            
-            log.info(`[GEMINI_RAW_RESPONSE] Raw text from AI: \n---\n${responseText}\n---`);
+            // --- STEP 1: CALCULATE INDICATORS ---
+            const calculatorPrompt = this._createCalculatorPrompt();
+            log.info("Generating signal (Step 1: Calculating Indicators)...");
+            const calculatorResult = await this.model.generateContent([calculatorPrompt, { ohlc: marketData.ohlc }]);
+            const indicatorJsonText = calculatorResult.response.text().trim().match(/\{.*\}/s)[0];
+            const indicatorData = JSON.parse(indicatorJsonText);
+            log.info(`[AI_CALCULATOR_OUTPUT]: ${JSON.stringify(indicatorData)}`);
 
-            // Use the robust regex parser to find the JSON object
-            const jsonMatch = responseText.match(/\{.*\}/s);
-            if (!jsonMatch) {
-                throw new Error("No valid JSON object found in the AI's response.");
-            }
-            const jsonText = jsonMatch[0];
-            const signalData = JSON.parse(jsonText);
+            // --- STEP 2: MAKE STRATEGIC DECISION ---
+            const strategistPrompt = this._createStrategistPrompt(indicatorData);
+            log.info("Generating signal (Step 2: Making Strategic Decision)...");
+            const strategistResult = await this.model.generateContent(strategistPrompt);
+            const signalJsonText = strategistResult.response.text().trim().match(/\{.*\}/s)[0];
+            const signalData = JSON.parse(signalJsonText);
 
-            // --- NO ADAPTATION NEEDED ---
-            // The AI's output is now in the exact format our bot requires.
-            // We just need to validate it.
+            // --- VALIDATION ---
             if (!['LONG', 'SHORT', 'HOLD'].includes(signalData.signal) || typeof signalData.confidence !== 'number' || typeof signalData.stop_loss_distance_in_usd !== 'number') {
-                throw new Error(`Invalid or malformed response from AI: ${JSON.stringify(signalData)}`);
+                throw new Error(`Invalid or malformed JSON from Strategist AI: ${JSON.stringify(signalData)}`);
             }
 
-            log.info(`AI Signal Received: ${signalData.signal} (Confidence: ${signalData.confidence}) | Reason: ${signalData.reason} | Suggested SL: $${signalData.stop_loss_distance_in_usd}`);
+            log.info(`AI Signal Successfully Parsed: ${signalData.signal} (Confidence: ${signalData.confidence}) | Reason: ${signalData.reason} | Suggested SL: $${signalData.stop_loss_distance_in_usd}`);
             return signalData;
 
         } catch (error) {
-            log.error(`Error parsing signal from Hybrid prompt. The problematic text was: "${responseText}"`, error);
+            log.error("Error during two-prompt (Calculator -> Strategist) signal generation:", error);
             return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0 };
         }
     }
