@@ -44,9 +44,10 @@ async function runSeeder() {
         
         log.info('--- Database Seeding Process Finished ---');
     } catch (error) {
-        log.error('The seeder process failed and was stopped.', error.message);
+        log.error('The seeder process failed and was stopped.', error);
     } finally {
         // We need to manually exit because the DB pool keeps the script alive
+        log.info('Seeder script finished. Exiting.');
         process.exit(0);
     }
 }
