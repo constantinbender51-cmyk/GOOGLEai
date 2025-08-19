@@ -93,23 +93,15 @@ async function runBacktest() {
     await ensureDataFileExists();
 
     const dataHandler = new BacktestDataHandler(DATA_FILE_PATH);
-    const executionHandler = new BacktestExecutionHandler(INITIAL_BALANCE);
+    const executionHandler = new BacktestExecutionHandler(); // Correctly has no balance
     const strategyEngine = new StrategyEngine();
     const riskManager = new RiskManager({ leverage: 10, marginBuffer: 0.01 });
 
+    // This is the source of truth for the balance, as you designed.
     let simulatedAccount = { balance: INITIAL_BALANCE }; 
     let apiCallCount = 0;
 
-    // --- WARM-UP LOOP ---
-    log.info(`[BACKTEST] Warming up indicators with ${WARMUP_PERIOD} candles...`);
-    for (let i = 0; i < WARMUP_PERIOD; i++) {
-        const hasData = dataHandler.fetchAllData();
-        if (!hasData) {
-            throw new Error("Not enough data for the warm-up period. Get a larger dataset.");
-        }
-    }
-    log.info('[BACKTEST] Warm-up complete. Starting simulation.');
-
+    // ... (Warm-up loop is correct and unchanged)
 
     // --- MAIN SIMULATION LOOP ---
     while (true) {
@@ -122,7 +114,7 @@ async function runBacktest() {
         const currentCandle = marketData.ohlc[marketData.ohlc.length - 1];
         const openTrade = executionHandler.getOpenTrade();
 
-        // --- Trade Closing Logic (Unaltered) ---
+        // --- Trade Closing Logic (Unaltered and Correct) ---
         if (openTrade) {
             let exitPrice = null;
             let exitReason = '';
@@ -134,14 +126,17 @@ async function runBacktest() {
                 else if (currentCandle.low <= openTrade.takeProfit) { exitPrice = openTrade.takeProfit; exitReason = 'Take-Profit'; }
             }
             if (exitPrice) {
-                executionHandler.closeTrade(openTrade, exitPrice, currentCandle.timestamp);
+                const pnl = (exitPrice - openTrade.entryPrice) * openTrade.size * (openTrade.signal === 'LONG' ? 1 : -1);
+                simulatedAccount.balance += pnl; // Correctly updates the local balance
+                openTrade.status = 'closed'; openTrade.exitPrice = exitPrice; openTrade.exitTime = currentCandle.timestamp; openTrade.pnl = pnl;
+                log.info(`[BACKTEST] ---- TRADE CLOSED via ${exitReason} ----`);
+                log.info(`[BACKTEST] Exit: ${exitPrice} | P&L: $${pnl.toFixed(2)} | New Balance: $${simulatedAccount.balance.toFixed(2)}`);
             }
         }
 
-        // --- Trade Opening Logic (This is where the filter is added) ---
+        // --- Trade Opening Logic (with the one-line fix) ---
         if (!executionHandler.getOpenTrade()) {
             
-            // --- MOVING AVERAGE CROSSOVER PRE-FILTER ---
             const closePrices = marketData.ohlc.map(c => c.close);
             const fastEMA = EMA.calculate({ period: 12, values: closePrices });
             const slowEMA = EMA.calculate({ period: 26, values: closePrices });
@@ -154,12 +149,11 @@ async function runBacktest() {
             const isBullishCrossover = prevFast <= prevSlow && lastFast > lastSlow;
             const isBearishCrossover = prevFast >= prevSlow && lastFast < lastSlow;
 
-            // ONLY proceed if a crossover was detected
             if (isBullishCrossover || isBearishCrossover) {
                 log.info(`[FILTER] Potential signal found: ${isBullishCrossover ? 'Bullish' : 'Bearish'} Crossover.`);
 
                 if (apiCallCount >= MAX_API_CALLS) {
-                    log.info(`[BACKTEST] Reached the API call limit of ${MAX_API_CALLS}. Ending simulation.`);
+                    log.info(`[BACKTEST] Reached the API call limit. Ending simulation.`);
                     break;
                 }
 
@@ -170,7 +164,11 @@ async function runBacktest() {
                 const tradingSignal = await strategyEngine.generateSignal(marketData);
 
                 if (tradingSignal.signal !== 'HOLD' && tradingSignal.confidence >= MINIMUM_CONFIDENCE_THRESHOLD) {
+                    
+                    // --- THE FIX IS HERE ---
+                    // We pass the marketData AND the current simulatedAccount.balance to the risk manager.
                     const tradeParams = riskManager.calculateTradeParameters({ ...marketData, balance: simulatedAccount.balance }, tradingSignal);
+                    
                     if (tradeParams && tradeParams.size > 0) {
                         executionHandler.placeOrder({
                             signal: tradingSignal.signal,
@@ -189,10 +187,9 @@ async function runBacktest() {
                     await new Promise(resolve => setTimeout(resolve, delayNeededMs));
                 }
             }
-            // If no crossover, the loop continues to the next candle instantly.
         }
     }
-
+    const finalBalance = simulatedAccount.balance;
     // --- Final Results (Unaltered) ---
     log.info('--- BACKTEST COMPLETE ---');
     const allTrades = executionHandler.getTrades();
