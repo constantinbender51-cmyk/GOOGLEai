@@ -14,8 +14,8 @@ export class StrategyEngine {
             category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
             threshold: HarmBlockThreshold.BLOCK_NONE,
         }];
-        this.model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", safetySettings }); // Using 1.5 Flash for potentially better analysis
-        log.info("StrategyEngine initialized with Gemini 1.5 Flash model.");
+        this.model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings }); // Using 1.5 Flash for potentially better analysis
+        log.info("StrategyEngine initialized with Gemini 2.5 Flash model.");
     }
 
     /**
