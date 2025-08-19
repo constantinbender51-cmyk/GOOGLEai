@@ -71,13 +71,24 @@ export class StrategyEngine {
 
         let strategistResult = null;
         try {
-            // --- THIS IS THE FIX ---
-            // We create one single prompt and use the reliable generateContent method.
+            const logSummary = {
+                timestamp: marketData.current_utc_timestamp,
+                ohlc_1h_candles: marketData.ohlc_1h.length,
+                ohlc_15m_candles: marketData.ohlc_15m.length,
+                // Check if the indicators object exists and has data
+                indicators_1h_present: !!marketData.indicators_1h,
+                // Add a few key indicator values to confirm they are calculated
+                last_ema_50: marketData.indicators_1h?.ema50?.slice(-1)[0],
+                last_rsi_14: marketData.indicators_1h?.rsi?.slice(-1)[0],
+                // We can add more checks for the other mocked data later
+                order_book_present: marketData.order_book_l2.bids.length > 0,
+            };
+
+            log.info(`--- PREPARING TO CALL GEMINI ---`);
+            log.info(`Data Payload Summary: ${JSON.stringify(logSummary, null, 2)}`);
+            log.info(`---------------------------------`);
             const fullPrompt = this._createFullPrompt(marketData);
 
-            // --- THIS IS THE FIX ---
-            // Let's print the exact prompt we are about to send.
-            log.info(`--- FINAL PROMPT SENT TO GEMINI ---\n${fullPrompt}\n------------------------------------`);
             log.info("Generating Chimera signal using generateContent...");
             strategistResult = await this.model.generateContent(fullPrompt);
             
