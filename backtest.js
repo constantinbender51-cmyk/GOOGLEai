@@ -2,7 +2,7 @@
 
 // --- FIX: Added import statements ---
 import { BacktestRunner } from './backtestRunner.js';
-import { ensureDataFileExists } from './dataFetcher.js';
+import { downloadAndSaveData } from './dataFetcher.js';
 import { log } from './logger.js';
 
 // --- Configuration ---
@@ -18,7 +18,11 @@ const config = {
 
 async function main() {
     try {
-        await ensureDataFileExists(config.DATA_FILE_PATH);
+        await downloadAndSaveData({
+            pair: 'BTCUSDT',
+            interval: '1h',
+            filePath: config.DATA_FILE_PATH
+        });
         const runner = new BacktestRunner(config);
         await runner.run();
     } catch (error) {
