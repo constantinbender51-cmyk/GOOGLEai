@@ -58,6 +58,7 @@ export class StrategyEngine {
             const result = await this.model.generateContent(prompt);
             const responseText = result.response.text();
             const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+            log.info(`[GEMINI_RAW_RESPONSE] Raw text from AI: \n---\n${cleanedText}\n---`);
             const signalData = JSON.parse(cleanedText);
 
             // --- ADAPTATION LOGIC ---
