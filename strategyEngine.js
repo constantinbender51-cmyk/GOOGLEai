@@ -39,7 +39,49 @@ export class StrategyEngine {
     }
 
     async generateSignal(marketData) {
-        // ... (The internal logic of this function remains the same, as it's already robust)
-        // It will now parse the new 5-key JSON response.
+        if (!marketData?.ohlc?.length) {
+            log.warn("StrategyEngine: Invalid or empty OHLC data provided.");
+            return { signal: 'HOLD', confidence: 0, reason: 'Insufficient market data.', stop_loss_distance_in_usd: 0 };
+        }
+        let responseText = ""; // Define outside the try block to be accessible in catch
+        try {
+            // --- STEP 1: CALCULATE FULL INDICATOR SERIES LOCALLY ---
+            log.info("Generating signal (Step 1: Calculating full indicator series locally)...");
+            const indicatorSeries = calculateIndicatorSeries(marketData.ohlc);
+            if (!indicatorSeries) {
+                return { signal: 'HOLD', confidence: 0, reason: 'Could not calculate indicators.', stop_loss_distance_in_usd: 0 };
+            }
+
+            // --- STEP 2: PREPARE FULL CONTEXTUAL PAYLOAD FOR AI ---
+            const contextualData = {
+                ohlc: marketData.ohlc, // The full 720 candles
+                indicators: indicatorSeries // The full indicator series
+            };
+
+            // --- STEP 3: MAKE STRATEGIC DECISION WITH AI ---
+            const strategistPrompt = this._createPrompt(contextualData);
+            log.info("Generating signal (Step 2: Making Strategic Decision with AI)...");
+            const strategistResult = await this.model.generateContent(strategistPrompt);
+            responseText = strategistResult.response.text(); // Assign the raw text
+
+            log.info(`[GEMINI_RAW_RESPONSE]:\n---\n${responseText}\n---`); // Log on every successful call
+
+            const signalJsonText = responseText.trim().match(/\{.*\}/s)[0];
+            const signalData = JSON.parse(signalJsonText);
+
+            // ... (validation and return logic are the same)
+            
+            return signalData;
+
+        } catch (error) {
+            // --- ERROR LOGGING ---
+            // If anything in the 'try' block fails, log the raw response that caused the error.
+            log.error(`--- ERROR PARSING GEMINI RESPONSE ---`);
+            log.error(`Problematic Raw Text Was: \n${responseText}`);
+            log.error(`Error Details:`, error);
+            log.error(`------------------------------------`);
+            
+            return { signal: 'HOLD', confidence: 0, reason: 'Failed to get a valid signal from the AI model.', stop_loss_distance_in_usd: 0 };
+        }
     }
 }
