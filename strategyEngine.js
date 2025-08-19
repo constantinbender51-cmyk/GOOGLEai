@@ -2,7 +2,7 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { log } from './logger.js';
-import { calculateIndicators } from './indicators.js'; // Import our new local calculator
+import { calculateIndicatorSeries } from './indicators.js'; // Import our new series calculator
 
 export class StrategyEngine {
     constructor() {
@@ -15,19 +15,25 @@ export class StrategyEngine {
         log.info("StrategyEngine initialized with local indicators and AI Strategist.");
     }
 
-    _createStrategistPrompt(indicatorData) {
+    _createStrategistPrompt(contextualData) {
         return `
-            You are an expert quantitative strategist. Based on these pre-calculated indicators, produce a single JSON trading signal.
+            You are an expert quantitative strategist. You have been provided with pre-processed market data for PF_XBTUSD.
+            Your task is to synthesize this data into a single, final JSON trading signal.
 
-            **Provided Indicators:**
-            ${JSON.stringify(indicatorData, null, 2)}
+            **Provided Data:**
+            1.  **Recent OHLC Candles:** The last 50 hours of price action.
+            2.  **Indicator Series:** The last 50 values for key technical indicators (EMAs, RSI, MACD, ATR).
 
-            **Rules:**
-            1.  Calculate a composite score from -1 to +1 based on the indicators.
-            2.  Determine a "signal": "LONG" if score >= 0.3, "SHORT" if score <= -0.3, otherwise "HOLD".
-            3.  Calculate "confidence" as the absolute value of the score multiplied by 100.
-            4.  Set "stop_loss_distance_in_usd" to be the "atr_20" value multiplied by 2.0 (or 0 if HOLD).
-            5.  Create a one-sentence "reason" for your decision.
+            **Data Payload:**
+            ${JSON.stringify(contextualData, null, 2)}
+
+            **Your Task:**
+            Analyze all the provided data to understand the market's trend, momentum, and volatility.
+            1.  Form a holistic view. Do not just look at the last value, but the *shape and interaction* of the data series.
+            2.  Based on your analysis, determine a "signal": "LONG", "SHORT", or "HOLD".
+            3.  Assign a "confidence" score from 0 to 100.
+            4.  Suggest a "stop_loss_distance_in_usd" based on the recent ATR values.
+            5.  Provide a one-sentence "reason" for your decision.
 
             **Output Task:**
             Output ONLY a JSON object with the keys: "signal", "confidence", "reason", and "stop_loss_distance_in_usd".
@@ -41,15 +47,22 @@ export class StrategyEngine {
         }
 
         try {
-            // --- STEP 1: CALCULATE INDICATORS LOCALLY ---
-            log.info("Generating signal (Step 1: Calculating Indicators Locally)...");
-            const indicatorData = calculateIndicators(marketData.ohlc);
-            if (!indicatorData) {
+            // --- STEP 1: CALCULATE INDICATOR SERIES LOCALLY ---
+            const seriesLength = 50;
+            log.info(`Generating signal (Step 1: Calculating ${seriesLength}-period indicator series locally)...`);
+            const indicatorSeries = calculateIndicatorSeries(marketData.ohlc, seriesLength);
+            if (!indicatorSeries) {
                 return { signal: 'HOLD', confidence: 0, reason: 'Could not calculate indicators.', stop_loss_distance_in_usd: 0 };
             }
 
-            // --- STEP 2: MAKE STRATEGIC DECISION WITH AI ---
-            const strategistPrompt = this._createStrategistPrompt(indicatorData);
+            // --- STEP 2: PREPARE CONTEXTUAL PAYLOAD FOR AI ---
+            const contextualData = {
+                recent_ohlc: marketData.ohlc.slice(-seriesLength), // Also send the last 50 raw candles
+                indicators: indicatorSeries
+            };
+
+            // --- STEP 3: MAKE STRATEGIC DECISION WITH AI ---
+            const strategistPrompt = this._createStrategistPrompt(contextualData);
             log.info("Generating signal (Step 2: Making Strategic Decision with AI)...");
             const strategistResult = await this.model.generateContent(strategistPrompt);
             const signalJsonText = strategistResult.response.text().trim().match(/\{.*\}/s)[0];
