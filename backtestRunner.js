@@ -2,7 +2,6 @@
 
 // --- FIX: Added import statements ---
 import { log } from './logger.js';
-import { EMA } from 'technicalindicators';
 import { BacktestDataHandler } from './backtestDataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
@@ -69,22 +68,41 @@ export class BacktestRunner {
     }
 
     _checkForSignal(marketData) {
-        const closePrices = marketData.ohlc.map(c => c.close);
-        const fastEMA = EMA.calculate({ period: 12, values: closePrices });
-        const slowEMA = EMA.calculate({ period: 26, values: closePrices });
-        const lastFast = fastEMA[fastEMA.length - 1];
-        const prevFast = fastEMA[fastEMA.length - 2];
-        const lastSlow = slowEMA[slowEMA.length - 1];
-        const prevSlow = slowEMA[slowEMA.length - 2];
-        const isBullishCrossover = prevFast <= prevSlow && lastFast > lastSlow;
-        const isBearishCrossover = prevFast >= prevSlow && lastFast < lastSlow;
-        if (isBullishCrossover || isBearishCrossover) {
-            log.info(`[FILTER] Potential signal found: ${isBullishCrossover ? 'Bullish' : 'Bearish'} Crossover.`);
+        const LOOKBACK_PERIOD = 20; // A common period for breakout strategies
+
+        // Ensure we have enough data for the lookback
+        if (marketData.ohlc.length < LOOKBACK_PERIOD + 1) {
+            return false;
+        }
+
+        // The current candle is the last one in the window
+        const currentCandle = marketData.ohlc[marketData.ohlc.length - 1];
+        
+        // The "lookback window" is the 20 candles *before* the current one
+        const lookbackWindow = marketData.ohlc.slice(
+            marketData.ohlc.length - LOOKBACK_PERIOD - 1, 
+            marketData.ohlc.length - 1
+        );
+
+        // Find the highest high and lowest low in that lookback window
+        const highestHigh = Math.max(...lookbackWindow.map(c => c.high));
+        const lowestLow = Math.min(...lookbackWindow.map(c => c.low));
+
+        // Check for a breakout
+        const isBullishBreakout = currentCandle.high > highestHigh;
+        const isBearishBreakout = currentCandle.low < lowestLow;
+
+        if (isBullishBreakout) {
+            log.info(`[FILTER] Potential signal found: Bullish Breakout above ${highestHigh}.`);
             return true;
         }
-        return false;
-    }
+        if (isBearishBreakout) {
+            log.info(`[FILTER] Potential signal found: Bearish Breakout below ${lowestLow}.`);
+            return true;
+        }
 
+        return false; // No breakout, no signal
+    }
     async _handleSignal(marketData, currentCandle, apiCallCount) {
         log.info(`[BACKTEST] [Call #${apiCallCount}/${this.config.MAX_API_CALLS}] Analyzing crossover event...`);
         const loopStartTime = Date.now();
