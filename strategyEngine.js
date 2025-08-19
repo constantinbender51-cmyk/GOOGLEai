@@ -27,13 +27,14 @@ export class StrategyEngine {
     _createPrompt(ohlcData) {
         const lastCandle = ohlcData[ohlcData.length - 1];
 
+       const candleTimestamp = lastCandle.timestamp ? new Date(lastCandle.timestamp * 1000) : new Date(lastCandle.date);
         // The prompt is now PURELY focused on market data analysis.
         return `
             You are an expert trading analysis AI for the PF_XBTUSD (Bitcoin Futures) market. Your only task is to analyze the provided OHLC market data and return a trading signal in a strict JSON format. Do not consider any external factors like account balance or open positions.
 
             **Market Context:**
             - Asset: Bitcoin Futures (PF_XBTUSD)
-            - Current Time: ${new Date(lastCandle.timestamp * 1000).toISOString()}
+            - Current Time: ${candleTimestamp.toISOString()}
 
             **Latest Market Data (1-Hour OHLC):**
             You have been provided with a sequence of 1-hour OHLC candles. The most recent candlestick is:
@@ -42,23 +43,16 @@ export class StrategyEngine {
             - Low: ${lastCandle.low}
             - Close: ${lastCandle.close}
             - Volume: ${lastCandle.volume}
-            - Timestamp: ${new Date(lastCandle.timestamp * 1000).toISOString()}
+            - Timestamp: ${candleTimestamp.toISOString()}
 
             **Your Task:**
             Based *only* on the provided OHLC data patterns, trends, and volume:
             1.  Decide on one of three actions: **LONG**, **SHORT**, or **HOLD**.
             2.  Provide a **confidence score** for your decision, from 0 (no confidence) to 100 (absolute certainty).
-            3.  Provide a brief, one-sentence **rationale** for your decision based on technical analysis.
+            3.  Provide a brief, one-sentence **rationale** for your decision.
 
             **Output Format (Strict JSON only):**
-            Return ONLY a JSON object with three keys: "signal", "confidence", and "reason".
-            The "confidence" value must be a number.
-
-            Example for a high-conviction long trade:
-            {"signal": "LONG", "confidence": 85, "reason": "The price has decisively broken above a key resistance level on high volume, suggesting strong upward momentum."}
-            
-            Example for a hold decision:
-            {"signal": "HOLD", "confidence": 30, "reason": "The market is showing conflicting signals with low volume, indicating indecision."}
+            Return ONLY a JSON object with three keys: "signal", "confidence", "reason".
         `;
     }
 
