@@ -1,4 +1,5 @@
-CREATE TABLE candles_1h (
+-- Use "CREATE TABLE IF NOT EXISTS" to prevent errors on subsequent runs
+CREATE TABLE IF NOT EXISTS candles_1h (
     timestamp BIGINT PRIMARY KEY,
     open NUMERIC,
     high NUMERIC,
@@ -7,7 +8,7 @@ CREATE TABLE candles_1h (
     volume NUMERIC
 );
 
-CREATE TABLE candles_15m (
+CREATE TABLE IF NOT EXISTS candles_15m (
     timestamp BIGINT PRIMARY KEY,
     open NUMERIC,
     high NUMERIC,
@@ -15,4 +16,3 @@ CREATE TABLE candles_15m (
     close NUMERIC,
     volume NUMERIC
 );
--- We can add more tables here later
