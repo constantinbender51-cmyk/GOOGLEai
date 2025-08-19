@@ -48,9 +48,15 @@ export class StrategyEngine {
         try {
             // --- STEP 1 & 2: Calculate Indicators and Prepare Payload (Unaltered) ---
             const indicatorSeries = calculateIndicatorSeries(marketData.ohlc);
-            if (!indicatorSeries) { /* ... */ }
-            const contextualData = { /* ... */ };
+            if (!indicatorSeries) {
+                return { signal: 'HOLD', confidence: 0, reason: 'Could not calculate indicators.', stop_loss_distance_in_usd: 0 };
+            }
 
+            // --- STEP 2: PREPARE FULL CONTEXTUAL PAYLOAD FOR AI ---
+            const contextualData = {
+                ohlc: marketData.ohlc, // The full 720 candles
+                indicators: indicatorSeries // The full indicator series
+            };
             // --- STEP 3: MAKE STRATEGIC DECISION WITH AI ---
             const strategistPrompt = this._createPrompt(contextualData);
             log.info("Generating signal with FULL 720-candle context...");
